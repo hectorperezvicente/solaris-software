@@ -11,7 +11,8 @@ jobs:
     steps:
       - name: Clean workspace
         run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" espressif/idf:v6.0-dev rm -rf /workspace/* /workspace/.??* || true
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}" 2>/dev/null || true
+          sudo rm -rf "${{ github.workspace }}"/* "${{ github.workspace }}"/.??* 2>/dev/null || true
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,7 +38,8 @@ jobs:
     steps:
       - name: Clean workspace
         run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" espressif/idf:v6.0-dev rm -rf /workspace/* /workspace/.??* || true
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}" 2>/dev/null || true
+          sudo rm -rf "${{ github.workspace }}"/* "${{ github.workspace }}"/.??* 2>/dev/null || true
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -60,7 +62,8 @@ jobs:
     steps:
       - name: Clean workspace
         run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" espressif/idf:v6.0-dev rm -rf /workspace/* /workspace/.??* || true
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}" 2>/dev/null || true
+          sudo rm -rf "${{ github.workspace }}"/* "${{ github.workspace }}"/.??* 2>/dev/null || true
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -106,7 +109,8 @@ jobs:
     steps:
       - name: Clean workspace
         run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" espressif/idf:v6.0-dev rm -rf /workspace/* /workspace/.??* || true
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}" 2>/dev/null || true
+          sudo rm -rf "${{ github.workspace }}"/* "${{ github.workspace }}"/.??* 2>/dev/null || true
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -165,7 +169,8 @@ jobs:
     steps:
       - name: Clean workspace
         run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" espressif/idf:v6.0-dev rm -rf /workspace/* /workspace/.??* || true
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}" 2>/dev/null || true
+          sudo rm -rf "${{ github.workspace }}"/* "${{ github.workspace }}"/.??* 2>/dev/null || true
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -189,7 +194,8 @@ jobs:
     steps:
       - name: Clean workspace
         run: |
-          docker run --rm -v "${{ github.workspace }}:/workspace" espressif/idf:v6.0-dev rm -rf /workspace/* /workspace/.??* || true
+          sudo chown -R "$(id -u):$(id -g)" "${{ github.workspace }}" 2>/dev/null || true
+          sudo rm -rf "${{ github.workspace }}"/* "${{ github.workspace }}"/.??* 2>/dev/null || true
 
       - name: Checkout repository
         uses: actions/checkout@v4
