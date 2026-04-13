@@ -1,16 +1,196 @@
 #!/bin/bash
 
-# Solaris Team Welcome Message with Date and Time
-clear
-echo -e "\n\033[1;36m#################################################################\033[0m"
-echo -e "\033[1;36m#  🚀 Welcome to the Solaris Software Development Terminal 🚀  #\033[0m"
-echo -e "\033[1;33m       Current Date & Time: $(date)                             \033[0m"
-echo -e "\033[1;36m#################################################################\033[0m\n"
+# ─── Git helpers ──────────────────────────────────────────────────────────────
 
-
-# Custom terminal prompt with current Git branch and color enhancement
 parse_git_branch() {
     git branch 2>/dev/null | grep '^*' | sed 's/^* //'
 }
-export PS1="\[\033[1;35m\]╭─[\[\033[1;36m\]Solaris Dev\[\033[1;35m\]]-[\[\033[1;34m\]\w\[\033[1;35m\]]\n\[\033[1;35m\]╰─> \[\033[1;32m\]\$(parse_git_branch)\[\033[0m\]$ "
 
+# ─── Prompt (PROMPT_COMMAND captures $? before anything overwrites it) ────────
+
+_solaris_prompt() {
+    local exit_code=$?
+    local branch dirty exit_part branch_part
+
+    branch=$(parse_git_branch)
+    [[ -n "$(git status --porcelain 2>/dev/null)" ]] && dirty=1
+
+    if [ -n "$branch" ]; then
+        if [ -n "$dirty" ]; then
+            branch_part=" \[\033[1;35m\](\[\033[1;33m\]${branch} ★\[\033[1;35m\])\[\033[0m\]"
+        else
+            branch_part=" \[\033[1;35m\](\[\033[1;32m\]${branch}\[\033[1;35m\])\[\033[0m\]"
+        fi
+    fi
+
+    [ $exit_code -ne 0 ] && exit_part=" \[\033[1;31m\]✗ ${exit_code}\[\033[0m\]"
+
+    PS1="\[\033[1;36m\]╭\[\033[0m\] \[\033[1;34m\]\w\[\033[0m\]${branch_part}${exit_part}\n\[\033[1;36m\]╰❯\[\033[0m\] "
+}
+PROMPT_COMMAND='_solaris_prompt'
+
+# ─── History ──────────────────────────────────────────────────────────────────
+
+HISTSIZE=10000
+HISTFILESIZE=20000
+HISTTIMEFORMAT="%Y-%m-%d %H:%M:%S  "
+HISTCONTROL=ignoreboth:erasedups
+shopt -s histappend
+
+# ─── Autocomplete ─────────────────────────────────────────────────────────────
+
+bind "set completion-ignore-case on"  2>/dev/null
+bind "set show-all-if-ambiguous on"   2>/dev/null
+bind "set colored-stats on"           2>/dev/null
+
+# ─── ESP-IDF aliases ──────────────────────────────────────────────────────────
+
+alias build='idf.py build && idf.py merge-bin'
+alias flash='idf.py flash'
+alias monitor='idf.py monitor'
+alias fullflash='idf.py build flash monitor'
+alias size='idf.py size'
+alias clean='idf.py fullclean'
+
+# ─── Navigation ───────────────────────────────────────────────────────────────
+
+SOLARIS_ROOT="/home/user/Documents/solaris-software"
+
+goto() {
+    case "$1" in
+        root)        cd "$SOLARIS_ROOT" ;;
+        v1)          cd "$SOLARIS_ROOT/solaris-v1" ;;
+        main)        cd "$SOLARIS_ROOT/solaris-v1/main" ;;
+        components)  cd "$SOLARIS_ROOT/solaris-v1/components" ;;
+        icm)         cd "$SOLARIS_ROOT/solaris-v1/components/icm_driver" ;;
+        bmp)         cd "$SOLARIS_ROOT/solaris-v1/components/pressureSensorDriver" ;;
+        datalogger)  cd "$SOLARIS_ROOT/solaris-v1/components/datalogger_driver" ;;
+        spp)         cd "$SOLARIS_ROOT/solaris-v1/external/spp" ;;
+        ports)       cd "$SOLARIS_ROOT/solaris-v1/external/spp-ports" ;;
+        *)
+            printf "\n  \033[1;33mUsage:\033[0m goto <destination>\n\n"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "root"        "solaris-software/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "v1"          "solaris-v1/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "main"        "solaris-v1/main/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "components"  "solaris-v1/components/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "icm"         "components/icm_driver/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "bmp"         "components/pressureSensorDriver/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "datalogger"  "components/datalogger_driver/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "spp"         "external/spp/"
+            printf "  \033[1;32m%-16s\033[0m %s\n" "ports"       "external/spp-ports/"
+            echo ""
+            ;;
+    esac
+}
+
+# ─── Help ─────────────────────────────────────────────────────────────────────
+
+help() {
+    local L="\033[1;36m  $(printf '─%.0s' {1..54})\033[0m"
+    echo -e "\n$L"
+    echo -e "\033[1;37m  Solaris Dev Container — Quick Reference\033[0m"
+    echo -e "$L"
+
+    echo -e "\n  \033[1;33mESP-IDF Aliases\033[0m"
+    printf "  \033[1;32m%-14s\033[0m %s\n" "build"     "idf.py build"
+    printf "  \033[1;32m%-14s\033[0m %s\n" "flash"     "idf.py flash"
+    printf "  \033[1;32m%-14s\033[0m %s\n" "monitor"   "idf.py monitor"
+    printf "  \033[1;32m%-14s\033[0m %s\n" "fullflash" "idf.py build flash monitor"
+    printf "  \033[1;32m%-14s\033[0m %s\n" "size"      "idf.py size"
+    printf "  \033[1;32m%-14s\033[0m %s\n" "clean"     "idf.py fullclean"
+
+    echo -e "\n  \033[1;33mNavigation  →  goto <destination>\033[0m"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto root"       "solaris-software/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto v1"         "solaris-v1/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto main"       "solaris-v1/main/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto components" "solaris-v1/components/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto icm"        "components/icm_driver/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto bmp"        "components/pressureSensorDriver/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto datalogger" "components/datalogger_driver/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto spp"        "external/spp/"
+    printf "  \033[1;32m%-16s\033[0m %s\n" "goto ports"      "external/spp-ports/"
+
+    echo -e "\n  \033[1;33mPrompt\033[0m"
+    echo -e "  \033[1;35m(branch \033[1;33m★\033[1;35m)\033[0m  Uncommitted changes present"
+    echo -e "  \033[1;31m✗ N\033[0m      Last command exited with code N"
+
+    echo -e "\n  \033[1;33mHistory\033[0m"
+    echo -e "  10 000 entries with timestamps, no duplicates.  \033[1;32mCtrl+R\033[0m to search."
+
+    echo -e "\n  \033[1;33mRaspberry Pi  (192.168.20.236)\033[0m"
+    echo -e "  \033[1;32mssh raspi\033[0m   SSH into the flashing / OpenOCD station."
+
+    echo -e "\n$L\n"
+}
+
+# ─── Welcome banner ───────────────────────────────────────────────────────────
+
+clear
+
+HOUR=$(date +%H)
+GIT_USER=$(git config --global user.name 2>/dev/null)
+GIT_USER="${GIT_USER:-Developer}"
+
+if   [ "$HOUR" -ge 6  ] && [ "$HOUR" -lt 12 ]; then GREETING="Buenos días"
+elif [ "$HOUR" -ge 12 ] && [ "$HOUR" -lt 20 ]; then GREETING="Buenas tardes"
+else                                                  GREETING="Buenas noches"
+fi
+
+# Source ESP-IDF if IDF_PATH is set but idf.py is not yet in PATH
+# (happens in compose+exec mode — postCreateCommand never ran, --init-file skips .bashrc)
+if [ -n "$IDF_PATH" ] && ! command -v idf.py >/dev/null 2>&1; then
+    source "$IDF_PATH/export.sh" >/dev/null 2>&1
+fi
+
+# Collect all status data before printing (avoids interleaved delays)
+if [ -n "$IDF_PATH" ]; then
+    IDF_VER=$(cat "$IDF_PATH/version.txt" 2>/dev/null \
+           || python3 "$IDF_PATH/tools/idf_version.py" 2>/dev/null \
+           || echo "?")
+fi
+
+BRANCH=$(parse_git_branch)
+CHANGES=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+
+(echo > /dev/tcp/192.168.20.236/22) >/dev/null 2>&1 && RASPI_OK=1 || RASPI_OK=0
+
+# ── Print ──────────────────────────────────────────────────────────────────────
+
+L="\033[1;36m  $(printf '─%.0s' {1..54})\033[0m"
+
+printf "  \033[1;36m%s\033[0m\n" "$(printf '▄%.0s' {1..54})"
+printf "  \033[1;37m%s\033[0m\n" "  SOLARIS  ·  Software Development Terminal"
+printf "  \033[1;36m%s\033[0m\n" "$(printf '▀%.0s' {1..54})"
+printf "  \033[1;33m%s, %s\033[0m\n" "$GREETING" "$GIT_USER"
+printf "  \033[0;37m%s\033[0m\n" "$(date '+%A, %d %B %Y  ·  %H:%M:%S')"
+echo ""
+
+printf "  \033[0;37m%-10s\033[0m" "ESP-IDF"
+if [ -n "$IDF_VER" ]; then
+    printf "\033[1;32m✔\033[0m  v%s\n" "$IDF_VER"
+else
+    printf "\033[1;31m✘\033[0m  not loaded\n"
+fi
+
+printf "  \033[0;37m%-10s\033[0m" "Git"
+if [ -n "$BRANCH" ]; then
+    if [ "$CHANGES" -gt 0 ]; then
+        printf "\033[1;34m%s\033[0m  \033[1;33m★ %s change(s)\033[0m\n" "$BRANCH" "$CHANGES"
+    else
+        printf "\033[1;34m%s\033[0m  \033[1;32m✔ clean\033[0m\n" "$BRANCH"
+    fi
+else
+    printf "\033[0;37mnot a git repository\033[0m\n"
+fi
+
+printf "  \033[0;37m%-10s\033[0m" "Raspi"
+if [ "$RASPI_OK" -eq 1 ]; then
+    printf "\033[1;32m✔\033[0m  192.168.20.236  →  ssh raspi\n"
+else
+    printf "\033[1;31m✘\033[0m  192.168.20.236 unreachable\n"
+fi
+
+echo ""
+echo -e "$L"
+echo -e "  \033[0;37mType \033[1;32mhelp\033[0;37m for the full command reference.\033[0m"
+echo -e "$L\n"
