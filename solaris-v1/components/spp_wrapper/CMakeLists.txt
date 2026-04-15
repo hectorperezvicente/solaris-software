@@ -49,8 +49,8 @@ set(SPP_ALL_SOURCES ${SPP_SRC_FILES} ${SPP_SERVICE_FILES})
 # Single include root: spp/include/ — all #include "spp/..." paths resolve here
 set(SPP_INCLUDE_DIR "${SPP_ROOT}/include")
 
-# Also expose services include dirs
-file(GLOB_RECURSE SPP_SERVICE_HEADERS "${SPP_ROOT}/services/*/include")
+# Also expose services include dirs (GLOB with LIST_DIRECTORIES to pick up include/ dirs)
+file(GLOB SPP_SERVICE_HEADERS LIST_DIRECTORIES true "${SPP_ROOT}/services/*/include")
 set(SPP_EXTRA_INCLUDES "")
 foreach(svc_inc ${SPP_SERVICE_HEADERS})
     if(IS_DIRECTORY "${svc_inc}")

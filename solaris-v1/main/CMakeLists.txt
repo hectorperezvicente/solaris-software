@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c" "bmpService.c"
+    SRCS "main.c"
     INCLUDE_DIRS "."
-    REQUIRES general icm_driver pressureSensorDriver datalogger_driver spp_wrapper spp_port_wrapper
+    REQUIRES general spp_wrapper spp_port_wrapper
 )

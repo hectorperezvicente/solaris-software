@@ -15,8 +15,10 @@
 #include "spp/osal/port.h"
 #include "spp/hal/port.h"
 #include "spp/services/log.h"
+#include "spp/services/service.h"
+#include "spp/services/bmp390.h"
 
-#include "bmpService.h"
+#include "macros_esp32.h"
 
 /* ----------------------------------------------------------------
  * External port objects (defined in spp_port_wrapper)
@@ -31,11 +33,31 @@ extern const SPP_HalPort_t  g_esp32HalPort;
 
 static const char *TAG = "MAIN";
 
-/** @brief Device index for the ICM-20948 (registered first on the SPI bus). */
-#define K_MAIN_SPI_IDX_ICM (0U)
+/** @brief GPIO pin used for the BMP390 data-ready interrupt. */
+#define K_MAIN_BMP390_INT_PIN  (5U)
 
-/** @brief Device index for the BMP-390. */
-#define K_MAIN_SPI_IDX_BMP (1U)
+/* ----------------------------------------------------------------
+ * Service instances (static allocation)
+ * ---------------------------------------------------------------- */
+
+static BMP390_ServiceCtx_t s_bmpCtx;
+
+static const BMP390_ServiceCfg_t s_bmpCfg = {
+    .spiDevIdx    = K_ESP32_SPI_IDX_BMP,
+    .intPin       = K_MAIN_BMP390_INT_PIN,
+    .intIntrType  = 1U,   /* rising edge */
+    .intPull      = 0U,   /* no pull     */
+    .sdCfg = {
+        .p_basePath         = "/sdcard",
+        .spiHostId          = K_ESP32_SPI_HOST,
+        .pinCs              = K_ESP32_PIN_CS_SDC,
+        .maxFiles           = 5U,
+        .allocationUnitSize = (16U * 1024U),
+        .formatIfMountFailed = false,
+    },
+    .p_logFilePath = "/sdcard/log.txt",
+    .logMaxPackets = 10U,
+};
 
 /* ----------------------------------------------------------------
  * app_main
@@ -77,7 +99,7 @@ void app_main(void)
     }
 
     /* ICM-20948 device — must be added first (index 0) */
-    void *p_spiIcm = SPP_Hal_spiGetHandle(K_MAIN_SPI_IDX_ICM);
+    void *p_spiIcm = SPP_Hal_spiGetHandle(K_ESP32_SPI_IDX_ICM);
     ret = SPP_Hal_spiDeviceInit(p_spiIcm);
     if (ret != SPP_OK)
     {
@@ -86,7 +108,7 @@ void app_main(void)
     }
 
     /* BMP-390 device — second handle (index 1) */
-    void *p_spiBmp = SPP_Hal_spiGetHandle(K_MAIN_SPI_IDX_BMP);
+    void *p_spiBmp = SPP_Hal_spiGetHandle(K_ESP32_SPI_IDX_BMP);
     ret = SPP_Hal_spiDeviceInit(p_spiBmp);
     if (ret != SPP_OK)
     {
@@ -94,20 +116,28 @@ void app_main(void)
         for (;;) { SPP_Osal_taskDelayMs(1000U); }
     }
 
-    /* --- BMP390 service ------------------------------------------- */
-    SPP_LOGI(TAG, "BMP service init");
-    ret = BMP_ServiceInit(p_spiBmp);
+    (void)p_spiIcm;
+    (void)p_spiBmp;
+
+    /* --- Service registry ----------------------------------------- */
+    ret = SPP_Service_register(&g_bmp390ServiceDesc, &s_bmpCtx, &s_bmpCfg);
     if (ret != SPP_OK)
     {
-        SPP_LOGE(TAG, "BMP_ServiceInit failed ret=%d", (int)ret);
+        SPP_LOGE(TAG, "Service register failed ret=%d", (int)ret);
         for (;;) { SPP_Osal_taskDelayMs(1000U); }
     }
 
-    SPP_LOGI(TAG, "BMP service start");
-    ret = BMP_ServiceStart();
+    ret = SPP_Service_initAll();
     if (ret != SPP_OK)
     {
-        SPP_LOGE(TAG, "BMP_ServiceStart failed ret=%d", (int)ret);
+        SPP_LOGE(TAG, "Service initAll failed ret=%d", (int)ret);
+        for (;;) { SPP_Osal_taskDelayMs(1000U); }
+    }
+
+    ret = SPP_Service_startAll();
+    if (ret != SPP_OK)
+    {
+        SPP_LOGE(TAG, "Service startAll failed ret=%d", (int)ret);
         for (;;) { SPP_Osal_taskDelayMs(1000U); }
     }
 
