@@ -91,29 +91,29 @@ void app_main(void)
     SPP_LOGI(TAG, "Boot");
 
     /* --- SPI bus init --------------------------------------------- */
-    ret = SPP_Hal_spiBusInit();
+    ret = SPP_HAL_spiBusInit();
     if (ret != SPP_OK)
     {
         SPP_LOGE(TAG, "SPI bus init failed");
-        for (;;) { SPP_Osal_taskDelayMs(1000U); }
+        for (;;) { SPP_OSAL_taskDelayMs(1000U); }
     }
 
     /* ICM-20948 device — must be added first (index 0) */
-    void *p_spiIcm = SPP_Hal_spiGetHandle(K_ESP32_SPI_IDX_ICM);
-    ret = SPP_Hal_spiDeviceInit(p_spiIcm);
+    void *p_spiIcm = SPP_HAL_spiGetHandle(K_ESP32_SPI_IDX_ICM);
+    ret = SPP_HAL_spiDeviceInit(p_spiIcm);
     if (ret != SPP_OK)
     {
         SPP_LOGE(TAG, "SPI device init ICM failed");
-        for (;;) { SPP_Osal_taskDelayMs(1000U); }
+        for (;;) { SPP_OSAL_taskDelayMs(1000U); }
     }
 
     /* BMP-390 device — second handle (index 1) */
-    void *p_spiBmp = SPP_Hal_spiGetHandle(K_ESP32_SPI_IDX_BMP);
-    ret = SPP_Hal_spiDeviceInit(p_spiBmp);
+    void *p_spiBmp = SPP_HAL_spiGetHandle(K_ESP32_SPI_IDX_BMP);
+    ret = SPP_HAL_spiDeviceInit(p_spiBmp);
     if (ret != SPP_OK)
     {
         SPP_LOGE(TAG, "SPI device init BMP failed");
-        for (;;) { SPP_Osal_taskDelayMs(1000U); }
+        for (;;) { SPP_OSAL_taskDelayMs(1000U); }
     }
 
     (void)p_spiIcm;
@@ -124,26 +124,26 @@ void app_main(void)
     if (ret != SPP_OK)
     {
         SPP_LOGE(TAG, "Service register failed ret=%d", (int)ret);
-        for (;;) { SPP_Osal_taskDelayMs(1000U); }
+        for (;;) { SPP_OSAL_taskDelayMs(1000U); }
     }
 
     ret = SPP_Service_initAll();
     if (ret != SPP_OK)
     {
         SPP_LOGE(TAG, "Service initAll failed ret=%d", (int)ret);
-        for (;;) { SPP_Osal_taskDelayMs(1000U); }
+        for (;;) { SPP_OSAL_taskDelayMs(1000U); }
     }
 
     ret = SPP_Service_startAll();
     if (ret != SPP_OK)
     {
         SPP_LOGE(TAG, "Service startAll failed ret=%d", (int)ret);
-        for (;;) { SPP_Osal_taskDelayMs(1000U); }
+        for (;;) { SPP_OSAL_taskDelayMs(1000U); }
     }
 
     SPP_LOGI(TAG, "Main idle");
     for (;;)
     {
-        SPP_Osal_taskDelayMs(1000U);
+        SPP_OSAL_taskDelayMs(1000U);
     }
 }
