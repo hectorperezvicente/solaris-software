@@ -1,9 +1,9 @@
 # ----------------------------------------------------------------
 # spp_wrapper — ESP-IDF component for SPP core + services
 #
-# Compiles everything in spp/src/ and exposes spp/include/ as the
-# public include path.  Platform-specific ports (osal, hal) come
-# from spp_port_wrapper.
+# Compiles everything in spp/src/ and spp/services/**/src/ and
+# exposes spp/include/ as the single public include root.
+# Platform-specific ports come from spp_port_wrapper.
 # ----------------------------------------------------------------
 
 # Locate external/spp
@@ -28,37 +28,22 @@ endforeach()
 list(REMOVE_DUPLICATES _candidates)
 set(SPP_ROOT "")
 foreach(p ${_candidates})
-    if(EXISTS "${p}/include/spp/core/core.h")   # Verify new structure
+    if(EXISTS "${p}/include/spp/core/core.h")
         set(SPP_ROOT "${p}")
         break()
     endif()
 endforeach()
 if(SPP_ROOT STREQUAL "")
-    message(FATAL_ERROR "spp_wrapper: could not find external/spp (new structure). Set SPP_ROOT.")
+    message(FATAL_ERROR "spp_wrapper: could not find external/spp. Set SPP_ROOT.")
 endif()
 message(STATUS "spp_wrapper: SPP_ROOT = ${SPP_ROOT}")
 
-# Collect all .c files under src/ — no hal or osal ports (those come from spp_port_wrapper)
-file(GLOB_RECURSE SPP_SRC_FILES "${SPP_ROOT}/src/*.c")
-
-# Also include services/ sensor service sources if present
+# All .c files: core library + sensor services
+file(GLOB_RECURSE SPP_SRC_FILES     "${SPP_ROOT}/src/*.c")
 file(GLOB_RECURSE SPP_SERVICE_FILES "${SPP_ROOT}/services/*.c")
 
-set(SPP_ALL_SOURCES ${SPP_SRC_FILES} ${SPP_SERVICE_FILES})
-
-# Single include root: spp/include/ — all #include "spp/..." paths resolve here
-set(SPP_INCLUDE_DIR "${SPP_ROOT}/include")
-
-# Also expose services include dirs (GLOB with LIST_DIRECTORIES to pick up include/ dirs)
-file(GLOB SPP_SERVICE_HEADERS LIST_DIRECTORIES true "${SPP_ROOT}/services/*/include")
-set(SPP_EXTRA_INCLUDES "")
-foreach(svc_inc ${SPP_SERVICE_HEADERS})
-    if(IS_DIRECTORY "${svc_inc}")
-        list(APPEND SPP_EXTRA_INCLUDES "${svc_inc}")
-    endif()
-endforeach()
-
+# Single include root covers everything: spp/core/, spp/hal/, spp/services/, etc.
 idf_component_register(
-    SRCS         ${SPP_ALL_SOURCES}
-    INCLUDE_DIRS ${SPP_INCLUDE_DIR} ${SPP_EXTRA_INCLUDES}
+    SRCS         ${SPP_SRC_FILES} ${SPP_SERVICE_FILES}
+    INCLUDE_DIRS "${SPP_ROOT}/include"
 )
