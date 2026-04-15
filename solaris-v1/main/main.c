@@ -54,12 +54,14 @@ static const char *TAG = "MAIN";
 
 static BMP390_ServiceCtx_t s_bmpCtx;
 
-static const BMP390_ServiceCfg_t s_bmpCfg = {
+static const BMP390_ServiceCfg_t s_bmpCfg =
+{
     .spiDevIdx    = K_ESP32_SPI_IDX_BMP,
     .intPin       = K_MAIN_BMP390_INT_PIN,
-    .intIntrType  = 1U,   /* rising edge */
-    .intPull      = 0U,   /* no pull     */
-    .sdCfg = {
+    .intIntrType  = 1U,
+    .intPull      = 0U,
+    .sdCfg =
+    {
         .p_basePath          = "/sdcard",
         .spiHostId           = K_ESP32_SPI_HOST,
         .pinCs               = K_ESP32_PIN_CS_SDC,
@@ -77,24 +79,24 @@ static const BMP390_ServiceCfg_t s_bmpCfg = {
 
 void app_main(void)
 {
-    retval_t ret;
+    SPP_RetVal_t ret;
 
     /* --- Port registration ---------------------------------------- */
     ret = SPP_Core_setOsalPort(&g_baremetalOsalPort);
-    if (ret != SPP_OK) { for (;;) {} }
+    if (ret != K_SPP_OK) { for (;;) {} }
 
     ret = SPP_Core_setHalPort(&g_esp32BaremetalHalPort);
-    if (ret != SPP_OK) { for (;;) {} }
+    if (ret != K_SPP_OK) { for (;;) {} }
 
     /* --- Core init ------------------------------------------------- */
     ret = SPP_Core_init();
-    if (ret != SPP_OK) { for (;;) {} }
+    if (ret != K_SPP_OK) { for (;;) {} }
 
     SPP_LOGI(TAG, "Boot (baremetal)");
 
     /* --- SPI bus + devices ----------------------------------------- */
     ret = SPP_HAL_spiBusInit();
-    if (ret != SPP_OK)
+    if (ret != K_SPP_OK)
     {
         SPP_LOGE(TAG, "SPI bus init failed");
         for (;;) {}
@@ -102,7 +104,7 @@ void app_main(void)
 
     void *p_spiIcm = SPP_HAL_spiGetHandle(K_ESP32_SPI_IDX_ICM);
     ret = SPP_HAL_spiDeviceInit(p_spiIcm);
-    if (ret != SPP_OK)
+    if (ret != K_SPP_OK)
     {
         SPP_LOGE(TAG, "SPI ICM init failed");
         for (;;) {}
@@ -110,7 +112,7 @@ void app_main(void)
 
     void *p_spiBmp = SPP_HAL_spiGetHandle(K_ESP32_SPI_IDX_BMP);
     ret = SPP_HAL_spiDeviceInit(p_spiBmp);
-    if (ret != SPP_OK)
+    if (ret != K_SPP_OK)
     {
         SPP_LOGE(TAG, "SPI BMP init failed");
         for (;;) {}
@@ -121,21 +123,21 @@ void app_main(void)
 
     /* --- Service registry ------------------------------------------ */
     ret = SPP_Service_register(&g_bmp390ServiceDesc, &s_bmpCtx, &s_bmpCfg);
-    if (ret != SPP_OK)
+    if (ret != K_SPP_OK)
     {
         SPP_LOGE(TAG, "Service register failed ret=%d", (int)ret);
         for (;;) {}
     }
 
     ret = SPP_Service_initAll();
-    if (ret != SPP_OK)
+    if (ret != K_SPP_OK)
     {
         SPP_LOGE(TAG, "Service initAll failed ret=%d", (int)ret);
         for (;;) {}
     }
 
     ret = SPP_Service_startAll();
-    if (ret != SPP_OK)
+    if (ret != K_SPP_OK)
     {
         SPP_LOGE(TAG, "Service startAll failed ret=%d", (int)ret);
         for (;;) {}
