@@ -1,23 +1,25 @@
 # ----------------------------------------------------------------
 # spp — ESP-IDF component for the SPP core library
 #
-# Core (src/) is always compiled.
+# Core sources are always compiled.
 # Services are opt-in via CMake options (all ON by default):
 #   SPP_SERVICE_BMP390     — BMP390 pressure sensor
 #   SPP_SERVICE_ICM20948   — ICM20948 IMU
 #   SPP_SERVICE_DATALOGGER — SD card datalogger
 #
 # To add a new service:
-#   1. Add its .c files under spp/services/<name>/src/
+#   1. Add its .h and .c under spp/services/<name>/
 #   2. Add one option() + one if-block in the services section below.
 #
-# To disable a service at build time (no source compiled at all):
+# To disable a service at build time:
 #   idf.py build -DSPP_SERVICE_ICM20948=OFF
 #
-# Platform ports (OSAL + HAL implementations) live in spp_ports.
+# Platform ports (OSAL + HAL implementations) live in compiler/spp_ports.
 # ----------------------------------------------------------------
 
-# Locate spp
+# ----------------------------------------------------------------
+# Locate spp root
+# ----------------------------------------------------------------
 set(_bases "${CMAKE_CURRENT_LIST_DIR};${PROJECT_SOURCE_DIR};${CMAKE_SOURCE_DIR}")
 set(_candidates "")
 if(SPP_ROOT)
@@ -39,7 +41,7 @@ endforeach()
 list(REMOVE_DUPLICATES _candidates)
 set(SPP_ROOT "")
 foreach(p ${_candidates})
-    if(EXISTS "${p}/include/spp/core/core.h")
+    if(EXISTS "${p}/core/core.h")
         set(SPP_ROOT "${p}")
         break()
     endif()
@@ -49,8 +51,20 @@ if(SPP_ROOT STREQUAL "")
 endif()
 message(STATUS "spp: SPP_ROOT = ${SPP_ROOT}")
 
-# Core library — always compiled
-file(GLOB_RECURSE SPP_SRC_FILES "${SPP_ROOT}/src/*.c")
+# ----------------------------------------------------------------
+# Core sources — always compiled
+# ----------------------------------------------------------------
+set(SPP_SRC_FILES
+    "${SPP_ROOT}/core/core.c"
+    "${SPP_ROOT}/core/error.c"
+    "${SPP_ROOT}/osal/dispatch.c"
+    "${SPP_ROOT}/hal/dispatch.c"
+    "${SPP_ROOT}/services/service.c"
+    "${SPP_ROOT}/services/databank/databank.c"
+    "${SPP_ROOT}/services/db_flow/db_flow.c"
+    "${SPP_ROOT}/services/log/log.c"
+    "${SPP_ROOT}/util/crc.c"
+)
 
 # ----------------------------------------------------------------
 # Services — add one option() + if-block for each new service
@@ -62,31 +76,28 @@ option(SPP_SERVICE_DATALOGGER "Compile datalogger (SD card) service"    ON)
 set(SPP_SERVICE_FILES "")
 
 if(SPP_SERVICE_BMP390)
-    file(GLOB_RECURSE _svc "${SPP_ROOT}/services/bmp390/src/*.c")
-    list(APPEND SPP_SERVICE_FILES ${_svc})
+    list(APPEND SPP_SERVICE_FILES "${SPP_ROOT}/services/bmp390/bmp390.c")
     message(STATUS "spp: BMP390 service       ON")
 else()
     message(STATUS "spp: BMP390 service       OFF")
 endif()
 
 if(SPP_SERVICE_ICM20948)
-    file(GLOB_RECURSE _svc "${SPP_ROOT}/services/icm20948/src/*.c")
-    list(APPEND SPP_SERVICE_FILES ${_svc})
+    list(APPEND SPP_SERVICE_FILES "${SPP_ROOT}/services/icm20948/icm20948.c")
     message(STATUS "spp: ICM20948 service     ON")
 else()
     message(STATUS "spp: ICM20948 service     OFF")
 endif()
 
 if(SPP_SERVICE_DATALOGGER)
-    file(GLOB_RECURSE _svc "${SPP_ROOT}/services/datalogger/src/*.c")
-    list(APPEND SPP_SERVICE_FILES ${_svc})
+    list(APPEND SPP_SERVICE_FILES "${SPP_ROOT}/services/datalogger/datalogger.c")
     message(STATUS "spp: DATALOGGER service   ON")
 else()
     message(STATUS "spp: DATALOGGER service   OFF")
 endif()
 
-# Single include root: spp/core/, spp/hal/, spp/osal/, spp/services/, etc.
+# Include root is the parent of spp/ so #include "spp/core/packet.h" resolves correctly.
 idf_component_register(
     SRCS         ${SPP_SRC_FILES} ${SPP_SERVICE_FILES}
-    INCLUDE_DIRS "${SPP_ROOT}/include"
+    INCLUDE_DIRS "${SPP_ROOT}/.."
 )

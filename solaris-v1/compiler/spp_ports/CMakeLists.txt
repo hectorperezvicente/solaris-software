@@ -1,20 +1,27 @@
 # ----------------------------------------------------------------
 # spp_ports — ESP-IDF component for SPP platform ports (ESP32)
 #
-# OSAL and HAL ports are opt-in via CMake options (all ON by default):
-#   SPP_OSAL_FREERTOS    — FreeRTOS OSAL  → g_freertosOsalPort
-#   SPP_OSAL_BAREMETAL   — Baremetal OSAL → g_baremetalOsalPort
-#   SPP_HAL_ESP32        — ESP32 HAL (FreeRTOS SPI)  → g_esp32HalPort
-#   SPP_HAL_ESP32_BM     — ESP32 HAL (polling SPI)   → g_esp32BaremetalHalPort
+# OSAL and HAL ports are independent and opt-in (all ON by default).
+# OSAL ports live in spp/ports/osal/<os>/
+# HAL  ports live in spp/ports/hal/<target>/
+#
+# Available ports:
+#   SPP_OSAL_FREERTOS    — FreeRTOS OSAL  → ports/osal/freertos/
+#   SPP_OSAL_BAREMETAL   — Baremetal OSAL → ports/osal/baremetal/
+#   SPP_HAL_ESP32        — ESP32 HAL (FreeRTOS SPI)
+#   SPP_HAL_ESP32_BM     — ESP32 HAL (polling SPI, no FreeRTOS)
 #
 # To disable a port at build time:
 #   idf.py build -DSPP_OSAL_FREERTOS=OFF
 #
-# To add a new port, add one option() + if-block in the relevant
-# section below, then extend INCLUDE_DIRS if the port has headers.
+# To add a new port:
+#   OSAL: add ports/osal/<os>/osal_<os>.c + option() + if-block below
+#   HAL:  add ports/hal/<target>/hal_<target>.c + option() + if-block below
 # ----------------------------------------------------------------
 
-# Locate spp
+# ----------------------------------------------------------------
+# Locate spp root
+# ----------------------------------------------------------------
 set(_bases "${CMAKE_CURRENT_LIST_DIR};${PROJECT_SOURCE_DIR};${CMAKE_SOURCE_DIR}")
 set(_candidates "")
 if(SPP_ROOT)
@@ -42,7 +49,7 @@ foreach(p ${_candidates})
     endif()
 endforeach()
 if(SPP_PORT_ROOT STREQUAL "")
-    message(FATAL_ERROR "spp_ports: could not locate ports/osal/freertos inside spp/.")
+    message(FATAL_ERROR "spp_ports: could not locate spp/ports/. Set SPP_ROOT.")
 endif()
 message(STATUS "spp_ports: SPP_PORT_ROOT = ${SPP_PORT_ROOT}")
 
@@ -74,8 +81,6 @@ endif()
 option(SPP_HAL_ESP32    "Compile ESP32 HAL (FreeRTOS SPI)"  ON)
 option(SPP_HAL_ESP32_BM "Compile ESP32 HAL (polling SPI)"   ON)
 
-set(HAL_ESP32_INC "${SPP_PORT_ROOT}/ports/hal/esp32/include")
-
 if(SPP_HAL_ESP32)
     list(APPEND PORT_SRCS "${SPP_PORT_ROOT}/ports/hal/esp32/hal_esp32.c")
     message(STATUS "spp_ports: HAL ESP32       ON")
@@ -90,9 +95,11 @@ else()
     message(STATUS "spp_ports: HAL ESP32 BM    OFF")
 endif()
 
+# Include root is the parent of spp/ for SPP headers.
+# ports/hal/esp32/ is added so macros_esp32.h resolves for HAL sources.
 idf_component_register(
     SRCS         ${PORT_SRCS}
-    INCLUDE_DIRS "${SPP_PORT_ROOT}/include" ${HAL_ESP32_INC}
+    INCLUDE_DIRS "${SPP_PORT_ROOT}/.." "${SPP_PORT_ROOT}/ports/hal/esp32"
     REQUIRES     spp esp_driver_spi esp_driver_gpio
                  esp_driver_sdspi fatfs freertos esp_timer
 )

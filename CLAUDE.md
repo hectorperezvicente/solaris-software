@@ -2,11 +2,31 @@
 
 ## Project Overview
 
-**Solaris** is an ESP32-S3 embedded firmware project for environmental sensing (pressure, IMU, altitude). It is built on top of a custom lightweight protocol stack called **SPP (Solaris Packet Protocol)**. The codebase is organized as multiple firmware versions (`solaris-v0.1`, `solaris-v0.2`, `solaris-v1`), with `solaris-v1` being the current active version.
+**Solaris** is an ESP32-S3 embedded firmware project for environmental sensing (pressure, IMU, altitude). It is built on top of a custom lightweight protocol stack called **SPP (Solaris Packet Protocol)**. `solaris-v1` is the current active version.
 
-Target: ESP32-S3 via ESP-IDF (as a git submodule at `solaris-v1/external/esp-idf`).
+Target: ESP32-S3 via ESP-IDF (managed by the devcontainer toolchain).
 Build system: CMake (ESP-IDF component model).
 RTOS: FreeRTOS.
+
+---
+
+## Developer Tooling
+
+### Terminal commands (devcontainer)
+
+| Command | Description |
+|---------|-------------|
+| `help` | Show all available commands |
+| `build` / `flash` / `monitor` / `fullflash` | ESP-IDF shortcuts |
+| `goto <dest>` | Navigate to key directories (`spp`, `ports`, `services`, `compiler`, `tests`, `docs`) |
+| `run_tests <path>` | cmake configure + build + ctest (Cgreen unit tests) |
+| `template [type]` | Print Doxygen templates. Types: `h`, `c`, `fn`, `struct`, `enum`, `macro`. No argument = all. |
+
+### Claude Code skills
+
+| Command | Description |
+|---------|-------------|
+| `/edit <file>` | Apply Doxygen formatting, naming convention checks, and section dividers to a `.c` or `.h` file. Changes are applied directly. |
 
 ---
 
@@ -16,28 +36,26 @@ RTOS: FreeRTOS.
 solaris-software/
 ├── solaris-v1/                  # Active firmware version
 │   ├── main/                    # Application entry point
-│   ├── components/              # ESP-IDF custom components
-│   │   ├── general/             # Legacy SPI/GPIO helpers (v0.x era)
-│   │   ├── icm_driver/          # ICM20948 IMU driver
-│   │   ├── pressureSensorDriver/# BMP390 pressure sensor driver
-│   │   ├── datalogger_driver/   # SD card data logging
-│   │   ├── spp_wrapper/         # SPP core + services as ESP-IDF component
-│   │   └── spp_port_wrapper/    # SPP platform ports as ESP-IDF component
-│   └── external/
-│       ├── esp-idf/             # ESP-IDF git submodule (do not edit)
-│       ├── spp/                 # SPP core library (git submodule)
-│       └── spp-ports/           # SPP ESP32/FreeRTOS ports (git submodule)
-├── solaris-v0.1/                # Legacy (reference only)
-├── solaris-v0.2/                # Legacy (reference only)
-├── docs/
-└── website/
+│   ├── spp/                     # SPP core library (git submodule — do not edit directly)
+│   │   ├── include/spp/         # Platform-agnostic public headers
+│   │   ├── src/                 # Platform-agnostic implementations
+│   │   ├── ports/               # Platform ports (freertos, posix, baremetal, esp32 HAL)
+│   │   ├── services/            # Sensor/telemetry services (bmp390, icm20948, datalogger)
+│   │   └── tests/unit/          # Cgreen unit tests (run on host via posix port)
+│   └── compiler/                # ESP-IDF component wrappers for the spp submodule
+│       ├── spp/                 # Wraps spp core + services as ESP-IDF component
+│       └── spp_ports/           # Wraps spp ports as ESP-IDF component
+├── archive/                     # Legacy firmware (solaris-v0.1, solaris-v0.2 — reference only)
+├── docs/                        # Architecture documentation
+├── website/                     # Static site (nginx)
+└── scripts/                     # Setup scripts (Linux, Windows)
 ```
 
 ---
 
 ## SPP (Solaris Packet Protocol) — Core Library
 
-Location: `solaris-v1/external/spp/`
+Location: `solaris-v1/spp/`
 Reference: modeled after ECSS Space Packet Protocol.
 
 ### SPP Architecture Layers
@@ -108,7 +126,7 @@ Constants: `SPP_PKT_VERSION = 1`, `SPP_PKT_PAYLOAD_MAX = 48`.
 
 ### osal/ (OS Abstraction Layer)
 
-Platform-agnostic interfaces. Implementations live in `spp-ports/`.
+Platform-agnostic interfaces. Implementations live in `spp/ports/`.
 
 **`osal/task.h`**:
 - `void *SPP_OSAL_GetTaskStorage()` — gets slot from static task pool
@@ -205,7 +223,7 @@ Macros: `SPP_LOGE`, `SPP_LOGW`, `SPP_LOGI`, `SPP_LOGD`, `SPP_LOGV(tag, fmt, ...)
 
 ## SPP-Ports — Platform Implementations
 
-Location: `solaris-v1/external/spp-ports/`
+Location: `solaris-v1/spp/ports/`
 Implements the HAL and OSAL interfaces for **ESP32 + FreeRTOS**.
 
 ### osal/freertos/
@@ -248,13 +266,17 @@ Implements the HAL and OSAL interfaces for **ESP32 + FreeRTOS**.
 
 ## ESP-IDF Component Wrappers
 
-### `components/spp_wrapper/CMakeLists.txt`
-- Glob-includes all `.c` from SPP_ROOT **excluding** `hal/` and `osal/`
+Location: `solaris-v1/compiler/`
+
+### `compiler/spp/CMakeLists.txt`
+- Wraps `spp/` core + opt-in services as an ESP-IDF component
+- Flags: `-DSPP_SERVICE_BMP390=ON/OFF`, `-DSPP_SERVICE_ICM20948=ON/OFF`, `-DSPP_SERVICE_DATALOGGER=ON/OFF`
 - Exposes SPP headers to dependent components
 
-### `components/spp_port_wrapper/CMakeLists.txt`
-- Glob-includes all `.c` from spp-ports **excluding** test/example/docs dirs
-- Depends on: `spp_wrapper`, `esp_driver_spi`, `esp_driver_gpio`, `esp_driver_sdspi`, `fatfs`, `freertos`
+### `compiler/spp_ports/CMakeLists.txt`
+- Wraps `spp/ports/` as an ESP-IDF component
+- Selects OSAL port (`SPP_OSAL_FREERTOS` or `SPP_OSAL_BAREMETAL`) and HAL port (`SPP_HAL_ESP32` or `SPP_HAL_ESP32_BM`)
+- Depends on: `spp`, `esp_driver_spi`, `esp_driver_gpio`, `esp_driver_sdspi`, `fatfs`, `freertos`
 
 ---
 
@@ -364,7 +386,7 @@ Contains legacy direct ESP-IDF SPI struct (`data_t`), GPIO interrupt helpers. No
 ## Reference: lley-core (Lely Industries) — Architectural Inspiration
 
 Location: `/home/user/Documents/lley-core`
-Purpose: Industrial C/C++ library for CANopen and async I/O. Studied as reference architecture for designing `external/spp`.
+Purpose: Industrial C/C++ library for CANopen and async I/O. Studied as reference architecture for designing `spp/`.
 
 ### Key Patterns in lley-core to Apply to SPP
 
@@ -603,7 +625,7 @@ spp/                              ← single repo, self-contained
 │       ├── src/datalogger_service.c
 │       └── CMakeLists.txt
 ├── ports/
-│   ├── freertos/                 ← moved from spp-ports
+│   ├── freertos/
 │   │   ├── osal/osal_freertos.c
 │   │   └── CMakeLists.txt
 │   ├── posix/                    ← NEW: for Cgreen tests on host
@@ -700,13 +722,13 @@ SPP_Service_startAll();
 
 ---
 
-## Design Goals for `external/spp` (Future Work)
+## Design Goals for `spp/` (Future Work)
 
-The user wants to design a new architecture for `external/spp` inspired by lley-core. Key objectives:
+Key objectives for the SPP library (architecture already implemented in v2):
 
-1. **Platform-agnostic core** — no ESP-IDF or FreeRTOS in `spp/` at all (already achieved)
-2. **Port abstraction** — `spp-ports/` provides concrete implementations (already achieved)
-3. **Packet pool** — static databank of fixed-size packets (already achieved, `DATA_BANK_SIZE=5`)
+1. **Platform-agnostic core** — no ESP-IDF or FreeRTOS in `spp/` at all (achieved)
+2. **Port abstraction** — `spp/ports/` provides concrete implementations (achieved)
+3. **Packet pool** — static databank of fixed-size packets (achieved, `K_SPP_DATABANK_SIZE=5`)
 4. **Service registry** — producers fill packets, consumers read via db_flow FIFO (partial)
 5. **Potential improvements inspired by lley-core**:
    - vtable-based service registration (like `io_dev_vtbl`)

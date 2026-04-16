@@ -58,26 +58,26 @@ SOLARIS_ROOT="/home/user/Documents/solaris-software"
 
 goto() {
     case "$1" in
-        root)        cd "$SOLARIS_ROOT" ;;
-        v1)          cd "$SOLARIS_ROOT/solaris-v1" ;;
-        main)        cd "$SOLARIS_ROOT/solaris-v1/main" ;;
-        components)  cd "$SOLARIS_ROOT/solaris-v1/components" ;;
-        icm)         cd "$SOLARIS_ROOT/solaris-v1/components/icm_driver" ;;
-        bmp)         cd "$SOLARIS_ROOT/solaris-v1/components/pressureSensorDriver" ;;
-        datalogger)  cd "$SOLARIS_ROOT/solaris-v1/components/datalogger_driver" ;;
-        spp)         cd "$SOLARIS_ROOT/solaris-v1/external/spp" ;;
-        ports)       cd "$SOLARIS_ROOT/solaris-v1/external/spp-ports" ;;
+        root)       cd "$SOLARIS_ROOT" ;;
+        v1)         cd "$SOLARIS_ROOT/solaris-v1" ;;
+        main)       cd "$SOLARIS_ROOT/solaris-v1/main" ;;
+        spp)        cd "$SOLARIS_ROOT/solaris-v1/spp" ;;
+        ports)      cd "$SOLARIS_ROOT/solaris-v1/spp/ports" ;;
+        services)   cd "$SOLARIS_ROOT/solaris-v1/spp/services" ;;
+        compiler)   cd "$SOLARIS_ROOT/solaris-v1/compiler" ;;
+        tests)      cd "$SOLARIS_ROOT/solaris-v1/spp/tests/unit" ;;
+        docs)       cd "$SOLARIS_ROOT/docs" ;;
         *)
             printf "\n  \033[1;33mUsage:\033[0m goto <destination>\n\n"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "root"        "solaris-software/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "v1"          "solaris-v1/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "main"        "solaris-v1/main/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "components"  "solaris-v1/components/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "icm"         "components/icm_driver/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "bmp"         "components/pressureSensorDriver/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "datalogger"  "components/datalogger_driver/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "spp"         "external/spp/"
-            printf "  \033[1;32m%-16s\033[0m %s\n" "ports"       "external/spp-ports/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "root"      "solaris-software/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "v1"        "solaris-v1/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "main"      "solaris-v1/main/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "spp"       "solaris-v1/spp/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "ports"     "solaris-v1/spp/ports/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "services"  "solaris-v1/spp/services/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "compiler"  "solaris-v1/compiler/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "tests"     "solaris-v1/spp/tests/unit/"
+            printf "  \033[1;32m%-14s\033[0m %s\n" "docs"      "docs/"
             echo ""
             ;;
     esac
@@ -158,6 +158,166 @@ run_tests() {
     return "$exit_code"
 }
 
+# ─── Doxygen Template ─────────────────────────────────────────────────────────
+
+template() {
+    local L="\033[1;36m  $(printf '─%.0s' {1..54})\033[0m"
+    local filter="${1:-all}"
+
+    echo -e "\n$L"
+    echo -e "\033[1;37m  Solaris Doxygen Templates\033[0m"
+    echo -e "$L\n"
+
+    if [[ "$filter" == "all" || "$filter" == "h" ]]; then
+        echo -e "  \033[1;33m── File header (.h) ──────────────────────────────────\033[0m\n"
+        cat <<'EOF'
+/**
+ * @file module.h
+ * @brief One-line description of this header.
+ *
+ * Extended description if needed. Describe the purpose of the
+ * module, not the implementation details.
+ *
+ * Naming conventions used in this file:
+ *  - Constants / macros : K_SPP_MODULE_*
+ *  - Types              : SPP_ModuleName_t
+ *  - Public functions   : SPP_Module_functionName()
+ *  - Pointer params     : p_paramName
+ *  - Static module vars : s_varName
+ */
+
+#ifndef SPP_MODULE_H
+#define SPP_MODULE_H
+
+#include "spp/core/returntypes.h"
+#include "spp/core/types.h"
+
+/* ----------------------------------------------------------------
+ * Constants
+ * ---------------------------------------------------------------- */
+
+/** @brief <description of constant>. */
+#define K_SPP_MODULE_EXAMPLE  (42U)
+
+/* ----------------------------------------------------------------
+ * Types
+ * ---------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------
+ * Public Functions
+ * ---------------------------------------------------------------- */
+
+#endif /* SPP_MODULE_H */
+EOF
+        echo ""
+    fi
+
+    if [[ "$filter" == "all" || "$filter" == "c" ]]; then
+        echo -e "  \033[1;33m── File header (.c) ──────────────────────────────────\033[0m\n"
+        cat <<'EOF'
+/**
+ * @file module.c
+ * @brief Implementation of <module name>.
+ *
+ * See module.h for the public API.
+ */
+
+#include "spp/module.h"
+
+/* ----------------------------------------------------------------
+ * Static Variables
+ * ---------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------
+ * Private Functions
+ * ---------------------------------------------------------------- */
+
+/* ----------------------------------------------------------------
+ * Public Functions
+ * ---------------------------------------------------------------- */
+EOF
+        echo ""
+    fi
+
+    if [[ "$filter" == "all" || "$filter" == "fn" ]]; then
+        echo -e "  \033[1;33m── Function ──────────────────────────────────────────\033[0m\n"
+        cat <<'EOF'
+/**
+ * @brief Short description of what the function does.
+ *
+ * Optional extended description. Explain preconditions,
+ * side effects, or threading constraints if relevant.
+ *
+ * @param[in]     p_cfg    Pointer to configuration struct. Must not be NULL.
+ * @param[in,out] p_ctx    Pointer to context, updated on success.
+ * @param[out]    p_result Pointer to output value.
+ *
+ * @return SPP_OK on success.
+ * @return SPP_ERROR_NULL_POINTER if any pointer argument is NULL.
+ * @return SPP_ERROR_INVALID_PARAMETER if configuration is invalid.
+ */
+retval_t SPP_Module_functionName(const SPP_ModuleCfg_t *p_cfg,
+                                 SPP_ModuleCtx_t       *p_ctx,
+                                 spp_uint32_t          *p_result);
+EOF
+        echo ""
+    fi
+
+    if [[ "$filter" == "all" || "$filter" == "struct" ]]; then
+        echo -e "  \033[1;33m── Struct / typedef ──────────────────────────────────\033[0m\n"
+        cat <<'EOF'
+/**
+ * @brief Short description of what this struct represents.
+ *
+ * Extended description if needed (ownership, lifecycle, etc.).
+ */
+typedef struct {
+    spp_uint32_t  fieldOne;   /**< @brief Description of fieldOne. */
+    spp_uint16_t  fieldTwo;   /**< @brief Description of fieldTwo. */
+    spp_bool_t    isEnabled;  /**< @brief True if the module is active. */
+    void         *p_handle;   /**< @brief Pointer to the underlying resource. */
+} SPP_ModuleName_t;
+EOF
+        echo ""
+    fi
+
+    if [[ "$filter" == "all" || "$filter" == "enum" ]]; then
+        echo -e "  \033[1;33m── Enum ──────────────────────────────────────────────\033[0m\n"
+        cat <<'EOF'
+/**
+ * @brief Short description of what this enum represents.
+ */
+typedef enum {
+    K_SPP_MODULE_STATE_IDLE    = 0, /**< @brief Module is idle, not started. */
+    K_SPP_MODULE_STATE_RUNNING = 1, /**< @brief Module is running normally.  */
+    K_SPP_MODULE_STATE_ERROR   = 2, /**< @brief Module encountered an error. */
+} SPP_ModuleState_t;
+EOF
+        echo ""
+    fi
+
+    if [[ "$filter" == "all" || "$filter" == "macro" ]]; then
+        echo -e "  \033[1;33m── Macro / constant ──────────────────────────────────\033[0m\n"
+        cat <<'EOF'
+/** @brief Maximum number of items in the module pool. */
+#define K_SPP_MODULE_MAX_ITEMS   (16U)
+
+/** @brief Default timeout in milliseconds. */
+#define K_SPP_MODULE_TIMEOUT_MS  (5000U)
+
+/**
+ * @brief Compute the size of an array at compile time.
+ * @param arr  Array whose size is computed (must not be a pointer).
+ */
+#define SPP_ARRAY_SIZE(arr)  (sizeof(arr) / sizeof((arr)[0]))
+EOF
+        echo ""
+    fi
+
+    echo -e "  \033[0;37mUsage: \033[1;32mtemplate\033[0;37m [h|c|fn|struct|enum|macro]\033[0m"
+    echo -e "$L\n"
+}
+
 # ─── Help ─────────────────────────────────────────────────────────────────────
 
 help() {
@@ -175,15 +335,27 @@ help() {
     printf "  \033[1;32m%-14s\033[0m %s\n" "clean"     "idf.py fullclean"
 
     echo -e "\n  \033[1;33mNavigation  →  goto <destination>\033[0m"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto root"       "solaris-software/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto v1"         "solaris-v1/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto main"       "solaris-v1/main/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto components" "solaris-v1/components/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto icm"        "components/icm_driver/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto bmp"        "components/pressureSensorDriver/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto datalogger" "components/datalogger_driver/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto spp"        "external/spp/"
-    printf "  \033[1;32m%-16s\033[0m %s\n" "goto ports"      "external/spp-ports/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto root"      "solaris-software/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto v1"        "solaris-v1/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto main"      "solaris-v1/main/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto spp"       "solaris-v1/spp/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto ports"     "solaris-v1/spp/ports/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto services"  "solaris-v1/spp/services/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto compiler"  "solaris-v1/compiler/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto tests"     "solaris-v1/spp/tests/unit/"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "goto docs"      "docs/"
+
+    echo -e "\n  \033[1;33mDoxygen Templates  →  template [type]\033[0m"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "template"        "All templates"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "template h"      "File header (.h)"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "template c"      "File header (.c)"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "template fn"     "Function"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "template struct" "Struct / typedef"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "template enum"   "Enum"
+    printf "  \033[1;32m%-18s\033[0m %s\n" "template macro"  "Macro / constant"
+
+    echo -e "\n  \033[1;33mUnit Testing  →  run_tests <path>\033[0m"
+    printf "  \033[1;32m%-30s\033[0m %s\n" "run_tests <path/to/tests>" "cmake build + ctest (Cgreen)"
 
     echo -e "\n  \033[1;33mPrompt\033[0m"
     echo -e "  \033[1;35m(branch \033[1;33m★\033[1;35m)\033[0m  Uncommitted changes present"
@@ -191,9 +363,6 @@ help() {
 
     echo -e "\n  \033[1;33mHistory\033[0m"
     echo -e "  10 000 entries with timestamps, no duplicates.  \033[1;32mCtrl+R\033[0m to search."
-
-    echo -e "\n  \033[1;33mUnit Testing  →  run_tests <path>\033[0m"
-    printf "  \033[1;32m%-30s\033[0m %s\n" "run_tests <path/to/tests>" "cmake build + ctest (Cgreen)"
 
     echo -e "\n  \033[1;33mRaspberry Pi  (192.168.20.236)\033[0m"
     echo -e "  \033[1;32mssh raspi\033[0m   SSH into the flashing / OpenOCD station."
