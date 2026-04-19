@@ -143,20 +143,21 @@ void app_main(void)
 
     SPP_LOGI(k_tag, "Solaris v1 boot");
 
-    /* 3. Init SD card logger. */
+    /* 3. Initialise SPI bus and devices (ICM first, then BMP).
+     *    Must come before SD card mount which uses the same SPI host. */
+    (void)SPP_HAL_spiBusInit();
+    (void)SPP_HAL_spiDeviceInit(SPP_HAL_spiGetHandle(0U)); /* ICM20948 */
+    (void)SPP_HAL_spiDeviceInit(SPP_HAL_spiGetHandle(1U)); /* BMP390   */
+
+    /* 4. Init SD card logger (SPI bus must already be up). */
     if (SPP_SERVICES_DATALOGGER_init(&s_logger, (void *)&s_storageCfg, "/sdcard/log.txt") != K_SPP_OK)
     {
         printf("[W] app_main: SD card unavailable — continuing without logging\n");
     }
 
-    /* 4. Subscribe SD card handler to all APIDs
+    /* 5. Subscribe SD card handler to all APIDs
      *    (sensor packets + log packets both land here). */
     (void)SPP_SERVICES_PUBSUB_subscribe(K_SPP_APID_ALL, sdLogHandler, &s_logger);
-
-    /* 5. Initialise SPI bus and devices (ICM first, then BMP). */
-    (void)SPP_HAL_spiBusInit();
-    (void)SPP_HAL_spiDeviceInit(SPP_HAL_spiGetHandle(0U)); /* ICM20948 */
-    (void)SPP_HAL_spiDeviceInit(SPP_HAL_spiGetHandle(1U)); /* BMP390   */
 
     /* 6. Register, init and start services. */
     (void)SPP_SERVICES_register(&g_icm20948ServiceDesc, &s_icmCtx, &s_icmCfg);
