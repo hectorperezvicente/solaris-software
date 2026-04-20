@@ -7,8 +7,6 @@ services:
         USERNAME: root
         USER_UID: 1000
         USER_GID: 1000
-    devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"
     privileged: true
     user: root
     tty: true
@@ -19,7 +17,6 @@ services:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     volumes:
-      - ${HOME}/.gitconfig:/root/.gitconfig:ro
       - ..:/home/user/Documents/solaris-software:cached
     network_mode: host
     working_dir: /home/user/Documents/solaris-software

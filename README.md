@@ -39,10 +39,19 @@ cd solaris-software
 ```
 
 > `--recurse-submodules` is required — ESP-IDF and the SPP libraries are git submodules.
+> Use HTTPS for this first clone since SSH keys are configured in the next step.
 
 ### Step 3 — Run the setup script
 
-The script installs Docker and VS Code, and configures everything for the Dev Container automatically.
+The script installs Docker and VS Code, generates SSH keys, configures Git identity, and sets up everything for the Dev Container. It is safe to run multiple times — it skips anything already done and offers to pull the latest repo changes on subsequent runs.
+
+The script will ask for your name and email and write them to `~/.gitconfig` (Linux) or `%USERPROFILE%\.gitconfig` (Windows):
+
+```ini
+[user]
+    name  = Your Name
+    email = your.email@example.com
+```
 
 **Linux** (Ubuntu / Debian / Fedora / Arch) — run with `sudo`:
 
@@ -50,13 +59,7 @@ The script installs Docker and VS Code, and configures everything for the Dev Co
 sudo ./scripts/install-linux.sh
 ```
 
-After the script finishes, add your user to the `docker` group:
-
-```bash
-sudo usermod -aG docker $USER
-```
-
-Then **log out and back in** (or run `newgrp docker`) for the group change to take effect.
+> The script adds your user to the `docker` group and opens a new session automatically to apply it — no manual logout needed.
 
 **Windows** — open PowerShell **as Administrator**:
 
@@ -67,7 +70,6 @@ Set-ExecutionPolicy Bypass -Scope Process -Force
 
 > The Windows script checks for common issues (virtualisation disabled, insufficient disk
 > space, WSL2 not enabled, missing winget) and gives step-by-step instructions for each.
-> It is safe to run multiple times — it skips anything already installed.
 > A reboot may be required after enabling WSL2; re-run the script afterwards.
 
 ### Step 4 — Open in VS Code and build
