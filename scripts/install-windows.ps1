@@ -445,7 +445,9 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
 # ==============================================================================
 Section "SSH keys and Git configuration"
 
-$sshDir = "$env:USERPROFILE\.ssh"
+$realProfile = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::UserProfile)
+$sshDir = Join-Path $realProfile ".ssh"
+Info "SSH directory: $sshDir"
 if (-not (Test-Path $sshDir)) { New-Item -ItemType Directory -Path $sshDir | Out-Null }
 
 Write-Host ""
@@ -470,6 +472,19 @@ if (-not $inp -or $inp -match '^[Yy]') {
         Write-Host ""
         Get-Content "${githubKeyPath}.pub"
         Write-Host ""
+        Get-Content "${githubKeyPath}.pub" | Set-Clipboard
+        Info "Public key copied to clipboard."
+        Write-Host ""
+        Read-Host "  Press Enter once you have added the key to GitHub"
+        Write-Host ""
+        Info "Verifying GitHub SSH connection..."
+        $sshOutput = ssh -T git@github.com 2>&1
+        if ($sshOutput -match "successfully authenticated") {
+            Ok "GitHub SSH connection verified: $sshOutput"
+        } else {
+            Warn "Could not verify connection: $sshOutput"
+            Warn "Make sure you saved the key on GitHub and try: ssh -T git@github.com"
+        }
     }
 } else {
     $gitEmail = ""

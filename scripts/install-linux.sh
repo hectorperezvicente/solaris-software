@@ -207,6 +207,16 @@ if [[ "${_inp:-Y}" =~ ^[Yy]$ ]]; then
         echo ""
         cat "${GITHUB_KEY_PATH}.pub"
         echo ""
+        read -r -p "  Press Enter once you have added the key to GitHub..."
+        echo ""
+        info "Verifying GitHub SSH connection..."
+        SSH_OUT=$(sudo -u "$REAL_USER" ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 || true)
+        if echo "$SSH_OUT" | grep -q "successfully authenticated"; then
+            ok "GitHub SSH connection verified: $SSH_OUT"
+        else
+            warn "Could not verify connection: $SSH_OUT"
+            warn "Make sure you saved the key on GitHub and try: ssh -T git@github.com"
+        fi
     fi
 else
     GIT_EMAIL=""
