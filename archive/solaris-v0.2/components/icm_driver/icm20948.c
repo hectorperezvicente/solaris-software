@@ -373,3 +373,44 @@ esp_err_t icm20948_read_measurements(data_t *p_dev) {
 
     return ESP_OK;
 }
+
+
+esp_err_t KALMAN_readFunction(data_t *p_dev, float *accel_x, float *accel_y, float *accel_z, float *gyro_x, float *gyro_y, float *gyro_z){
+    // Required variables
+    int16_t accel_x_raw, accel_y_raw, accel_z_raw;
+    int16_t gyro_x_raw, gyro_y_raw, gyro_z_raw;
+
+    // Compensation variables (these are unique for each esp32, so they must be set with the average destiation of your own esp32)
+    float ax_offset = 1.622;
+    float ay_offset = 0.288;
+    float az_offset = -8.682;
+    float gx_offset = -0.262;
+    float gy_offset = -2.372;
+    float gz_offset = 0.014;
+
+    // Accel: X
+    accel_x_raw = get_raw_axis_data(p_dev, REG_ACCEL_X_H, REG_ACCEL_X_L);
+    *accel_x = (((float)accel_x_raw / 16384.0f) * 9.80665f) + ax_offset; // Digital value -> g -> m/s2
+
+    // Accel: Y
+    accel_y_raw = get_raw_axis_data(p_dev, REG_ACCEL_Y_H, REG_ACCEL_Y_L);
+    *accel_y = (((float)accel_y_raw / 16384.0f) * 9.80665f) + ay_offset;
+
+    // Accel: Z
+    accel_z_raw = get_raw_axis_data(p_dev, REG_ACCEL_Z_H, REG_ACCEL_Z_L);
+    *accel_z = (((float)accel_z_raw / 16384.0f) * 9.80665f) + az_offset;
+
+    // Gyro: X
+    gyro_x_raw = get_raw_axis_data(p_dev, REG_GYRO_X_H, REG_GYRO_X_L);
+    *gyro_x = ((float)gyro_x_raw / 131.0f) + gx_offset; // Digital value -> dps (degrees per second)
+
+    // Gyro: Y
+    gyro_y_raw = get_raw_axis_data(p_dev, REG_GYRO_Y_H, REG_GYRO_Y_L);
+    *gyro_y = ((float)gyro_y_raw / 131.0f) + gy_offset;
+
+    // Gyro: Z
+    gyro_z_raw = get_raw_axis_data(p_dev, REG_GYRO_Z_H, REG_GYRO_Z_L);
+    *gyro_z = ((float)gyro_z_raw / 131.0f) + gz_offset;
+    
+    return ESP_OK;
+}

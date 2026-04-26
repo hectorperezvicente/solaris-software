@@ -88,4 +88,6 @@ esp_err_t icm20948_read_measurements(data_t *p_dev);
 
 esp_err_t icm20948_send_message(data_t *p_dev, uint8_t tx[2], uint8_t rx[2]);
 
+esp_err_t KALMAN_readFunction(data_t *p_dev, float *accel_x, float *accel_y, float *accel_z, float *gyro_x, float *gyro_y, float *gyro_z);
+
 #endif
