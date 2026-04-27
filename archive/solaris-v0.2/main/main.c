@@ -52,7 +52,7 @@ int app_main(void)
     kalman_state kal;
 
     float Q_init[16] = {0};
-    float R_init[3] = {0.001f, 0.001f, 0.001f};
+    float R_init[3] = {0.0000001f, 0.0000001f, 0.0000001f};
 
     SPP_SERVICES_KALMAN_ekfInit(&kal, &data, 0.01f, Q_init, R_init);
 

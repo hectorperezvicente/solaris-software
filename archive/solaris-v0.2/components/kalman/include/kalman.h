@@ -4,9 +4,9 @@
 #include <math.h>
 
 #define g                (float)9.81f
-#define GYRO_X_NOISE_STD 0.00026f
-#define GYRO_Y_NOISE_STD 0.00026f
-#define GYRO_Z_NOISE_STD 0.00026f
+#define GYRO_X_NOISE_STD 0.1f
+#define GYRO_Y_NOISE_STD 0.1f
+#define GYRO_Z_NOISE_STD 0.1f
 
 #define GYRO_X_VAR (GYRO_X_NOISE_STD * GYRO_X_NOISE_STD)
 #define GYRO_Y_VAR (GYRO_Y_NOISE_STD * GYRO_Y_NOISE_STD)
