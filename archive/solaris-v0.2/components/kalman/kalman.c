@@ -1,38 +1,382 @@
-// VERSIÓN SIMPLIFICADA SIN BIAS Y SIN MAGNETÓMETRO
-
-
-#include <stdio.h>
+#include <math.h>
 #include <string.h>
 #include "kalman.h"
 
+#define KALMAN_EPS 1.0e-9f
 
-void SPP_SERVICES_KALMAN_ekfInit(kalman_state *kal, sensor_data *data, float Pinit, float *Q,
-                                 float *R)
+static void mat4_zero(float A[16])
 {
+    memset(A, 0, 16U * sizeof(float));
+}
+
+static void mat3_zero(float A[9])
+{
+    memset(A, 0, 9U * sizeof(float));
+}
+
+static void mat4_identity(float A[16])
+{
+    mat4_zero(A);
+    A[0] = 1.0f;
+    A[5] = 1.0f;
+    A[10] = 1.0f;
+    A[15] = 1.0f;
+}
+
+static void mat4_transpose(const float A[16], float AT[16])
+{
+    AT[0] = A[0];
+    AT[1] = A[4];
+    AT[2] = A[8];
+    AT[3] = A[12];
+
+    AT[4] = A[1];
+    AT[5] = A[5];
+    AT[6] = A[9];
+    AT[7] = A[13];
+
+    AT[8] = A[2];
+    AT[9] = A[6];
+    AT[10] = A[10];
+    AT[11] = A[14];
+
+    AT[12] = A[3];
+    AT[13] = A[7];
+    AT[14] = A[11];
+    AT[15] = A[15];
+}
+
+static void mat3_transpose(const float A[9], float AT[9])
+{
+    AT[0] = A[0];
+    AT[1] = A[3];
+    AT[2] = A[6];
+
+    AT[3] = A[1];
+    AT[4] = A[4];
+    AT[5] = A[7];
+
+    AT[6] = A[2];
+    AT[7] = A[5];
+    AT[8] = A[8];
+}
+
+static void mat3x4_transpose_to_4x3(const float A[12], float AT[12])
+{
+    /*
+     * A: 3x4 row-major
+     * AT: 4x3 row-major
+     */
+    AT[0] = A[0];
+    AT[1] = A[4];
+    AT[2] = A[8];
+
+    AT[3] = A[1];
+    AT[4] = A[5];
+    AT[5] = A[9];
+
+    AT[6] = A[2];
+    AT[7] = A[6];
+    AT[8] = A[10];
+
+    AT[9] = A[3];
+    AT[10] = A[7];
+    AT[11] = A[11];
+}
+
+static void mat4x3_transpose_to_3x4(const float A[12], float AT[12])
+{
+    /*
+     * A: 4x3 row-major
+     * AT: 3x4 row-major
+     */
+    AT[0] = A[0];
+    AT[1] = A[3];
+    AT[2] = A[6];
+    AT[3] = A[9];
+
+    AT[4] = A[1];
+    AT[5] = A[4];
+    AT[6] = A[7];
+    AT[7] = A[10];
+
+    AT[8] = A[2];
+    AT[9] = A[5];
+    AT[10] = A[8];
+    AT[11] = A[11];
+}
+
+static void mat4_add(const float A[16], const float B[16], float C[16])
+{
+    for (int i = 0; i < 16; i++)
+    {
+        C[i] = A[i] + B[i];
+    }
+}
+
+static void mat4_sub(const float A[16], const float B[16], float C[16])
+{
+    for (int i = 0; i < 16; i++)
+    {
+        C[i] = A[i] - B[i];
+    }
+}
+
+static void mat4_mul(const float A[16], const float B[16], float C[16])
+{
+    float T[16];
+
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            T[4 * r + c] = A[4 * r + 0] * B[0 * 4 + c] + A[4 * r + 1] * B[1 * 4 + c] +
+                           A[4 * r + 2] * B[2 * 4 + c] + A[4 * r + 3] * B[3 * 4 + c];
+        }
+    }
+
+    memcpy(C, T, sizeof(T));
+}
+
+static void mat4x4_mul_4x3(const float A[16], const float B[12], float C[12])
+{
+    /*
+     * A: 4x4
+     * B: 4x3
+     * C: 4x3
+     */
+    float T[12];
+
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 3; c++)
+        {
+            T[3 * r + c] = A[4 * r + 0] * B[0 * 3 + c] + A[4 * r + 1] * B[1 * 3 + c] +
+                           A[4 * r + 2] * B[2 * 3 + c] + A[4 * r + 3] * B[3 * 3 + c];
+        }
+    }
+
+    memcpy(C, T, sizeof(T));
+}
+
+static void mat3x4_mul_4x4(const float A[12], const float B[16], float C[12])
+{
+    /*
+     * A: 3x4
+     * B: 4x4
+     * C: 3x4
+     */
+    float T[12];
+
+    for (int r = 0; r < 3; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            T[4 * r + c] = A[4 * r + 0] * B[0 * 4 + c] + A[4 * r + 1] * B[1 * 4 + c] +
+                           A[4 * r + 2] * B[2 * 4 + c] + A[4 * r + 3] * B[3 * 4 + c];
+        }
+    }
+
+    memcpy(C, T, sizeof(T));
+}
+
+static void mat3x4_mul_4x3(const float A[12], const float B[12], float C[9])
+{
+    /*
+     * A: 3x4
+     * B: 4x3
+     * C: 3x3
+     */
+    float T[9];
+
+    for (int r = 0; r < 3; r++)
+    {
+        for (int c = 0; c < 3; c++)
+        {
+            T[3 * r + c] = A[4 * r + 0] * B[0 * 3 + c] + A[4 * r + 1] * B[1 * 3 + c] +
+                           A[4 * r + 2] * B[2 * 3 + c] + A[4 * r + 3] * B[3 * 3 + c];
+        }
+    }
+
+    memcpy(C, T, sizeof(T));
+}
+
+static void mat4x3_mul_3x3(const float A[12], const float B[9], float C[12])
+{
+    /*
+     * A: 4x3
+     * B: 3x3
+     * C: 4x3
+     */
+    float T[12];
+
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 3; c++)
+        {
+            T[3 * r + c] = A[3 * r + 0] * B[0 * 3 + c] + A[3 * r + 1] * B[1 * 3 + c] +
+                           A[3 * r + 2] * B[2 * 3 + c];
+        }
+    }
+
+    memcpy(C, T, sizeof(T));
+}
+
+static void mat4x3_mul_3x4(const float A[12], const float B[12], float C[16])
+{
+    /*
+     * A: 4x3
+     * B: 3x4
+     * C: 4x4
+     */
+    float T[16];
+
+    for (int r = 0; r < 4; r++)
+    {
+        for (int c = 0; c < 4; c++)
+        {
+            T[4 * r + c] = A[3 * r + 0] * B[0 * 4 + c] + A[3 * r + 1] * B[1 * 4 + c] +
+                           A[3 * r + 2] * B[2 * 4 + c];
+        }
+    }
+
+    memcpy(C, T, sizeof(T));
+}
+
+static void mat4x3_mul_vec3(const float A[12], const float x[3], float y[4])
+{
+    for (int r = 0; r < 4; r++)
+    {
+        y[r] = A[3 * r + 0] * x[0] + A[3 * r + 1] * x[1] + A[3 * r + 2] * x[2];
+    }
+}
+
+static int mat3_inverse(const float A[9], float invA[9])
+{
+    const float c00 = A[4] * A[8] - A[5] * A[7];
+    const float c01 = A[5] * A[6] - A[3] * A[8];
+    const float c02 = A[3] * A[7] - A[4] * A[6];
+
+    const float det = A[0] * c00 + A[1] * c01 + A[2] * c02;
+
+    if (fabsf(det) < 1.0e-9f)
+    {
+        return 0;
+    }
+
+    const float inv_det = 1.0f / det;
+
+    invA[0] = c00 * inv_det;
+    invA[1] = (A[2] * A[7] - A[1] * A[8]) * inv_det;
+    invA[2] = (A[1] * A[5] - A[2] * A[4]) * inv_det;
+
+    invA[3] = c01 * inv_det;
+    invA[4] = (A[0] * A[8] - A[2] * A[6]) * inv_det;
+    invA[5] = (A[2] * A[3] - A[0] * A[5]) * inv_det;
+
+    invA[6] = c02 * inv_det;
+    invA[7] = (A[1] * A[6] - A[0] * A[7]) * inv_det;
+    invA[8] = (A[0] * A[4] - A[1] * A[3]) * inv_det;
+
+    return 1;
+}
+
+static void symmetrize4(float P[16])
+{
+    float p01 = 0.5f * (P[1] + P[4]);
+    float p02 = 0.5f * (P[2] + P[8]);
+    float p03 = 0.5f * (P[3] + P[12]);
+    float p12 = 0.5f * (P[6] + P[9]);
+    float p13 = 0.5f * (P[7] + P[13]);
+    float p23 = 0.5f * (P[11] + P[14]);
+
+    P[1] = p01;
+    P[4] = p01;
+
+    P[2] = p02;
+    P[8] = p02;
+
+    P[3] = p03;
+    P[12] = p03;
+
+    P[6] = p12;
+    P[9] = p12;
+
+    P[7] = p13;
+    P[13] = p13;
+
+    P[11] = p23;
+    P[14] = p23;
+}
+
+static int normalize_quaternion(kalman_state *kal)
+{
+    const float n2 = kal->qw * kal->qw + kal->qx * kal->qx + kal->qy * kal->qy + kal->qz * kal->qz;
+
+    if (n2 < KALMAN_EPS)
+    {
+        kal->qw = 1.0f;
+        kal->qx = 0.0f;
+        kal->qy = 0.0f;
+        kal->qz = 0.0f;
+        return 0;
+    }
+
+    const float inv_n = 1.0f / sqrtf(n2);
+
+    kal->qw *= inv_n;
+    kal->qx *= inv_n;
+    kal->qy *= inv_n;
+    kal->qz *= inv_n;
+
+    return 1;
+}
+
+void SPP_SERVICES_KALMAN_ekfInit(kalman_state *kal, sensor_data *data, float Pinit, const float *Q,
+                                 const float *R)
+{
+    if ((kal == 0) || (data == 0))
+    {
+        return;
+    }
+
     kal->qw = 1.0f;
     kal->qx = 0.0f;
     kal->qy = 0.0f;
     kal->qz = 0.0f;
 
-    // kal->bx = 0.0f;
-    // kal->by = 0.0f;
-    // kal->bz = 0.0f;
-
-    memset(kal->P, 0, sizeof(kal->P));
+    mat4_zero(kal->P);
     kal->P[0] = Pinit;
     kal->P[5] = Pinit;
     kal->P[10] = Pinit;
     kal->P[15] = Pinit;
 
-    memset(kal->Q, 0, sizeof(kal->Q));
-    kal->Q[0] = Q[0];
-    kal->Q[5] = Q[5];
-    kal->Q[10] = Q[10];
-    kal->Q[15] = Q[15];
+    mat4_zero(kal->Q);
 
-    kal->R[0] = R[0];
-    kal->R[1] = R[1];
-    kal->R[2] = R[2];
+    if (Q != 0)
+    {
+        /*
+         * Se asume Q como matriz 4x4 row-major.
+         * Si no quieres pasar Q, pasa NULL y se calculará en predict.
+         */
+        kal->Q[0] = Q[0];
+        kal->Q[5] = Q[5];
+        kal->Q[10] = Q[10];
+        kal->Q[15] = Q[15];
+    }
+
+    if (R != 0)
+    {
+        kal->R[0] = R[0];
+        kal->R[1] = R[1];
+        kal->R[2] = R[2];
+    }
+    else
+    {
+        kal->R[0] = 0.05f;
+        kal->R[1] = 0.05f;
+        kal->R[2] = 0.05f;
+    }
 
     data->acc_old_data[0] = 0.0f;
     data->acc_old_data[1] = 0.0f;
@@ -42,734 +386,346 @@ void SPP_SERVICES_KALMAN_ekfInit(kalman_state *kal, sensor_data *data, float Pin
     data->gyro_old_data[1] = 0.0f;
     data->gyro_old_data[2] = 0.0f;
 
-    data->acc_new_data = 0;
-    data->gyro_new_data = 0;
-
-    //data->mag_old_data[0] = 0.0f;
-    //data->mag_old_data[1] = 0.0f;
-    //data->mag_old_data[2] = 0.0f;
+    data->acc_new_data = 0U;
+    data->gyro_new_data = 0U;
 }
 
-
-void SPP_SERVICES_KALMAN_ekfPredict(kalman_state *kal, float *gyr_rps, const float T)
+void SPP_SERVICES_KALMAN_ekfPredict(kalman_state *kal, sensor_data *data, float T)
 {
-    /* Extract measurements */
-    float p = gyr_rps[0];
-    float q = gyr_rps[1];
-    float r = gyr_rps[2];
+    if ((kal == 0) || (data == 0))
+    {
+        return;
+    }
 
-    /* Save old coefficients */
-    float qw_old = kal->qw;
-    float qx_old = kal->qx;
-    float qy_old = kal->qy;
-    float qz_old = kal->qz;
+    if (T <= 0.0f)
+    {
+        return;
+    }
 
-    /* Compute common terms */
-    float half_T = T * 0.5f;
-    float dp = half_T * p;
-    float dq = half_T * q;
-    float dr = half_T * r;
+    normalize_quaternion(kal);
 
-    /* Prediction: x = f(x, u) */
+    const float p = data->gyro_data[0];
+    const float q = data->gyro_data[1];
+    const float r = data->gyro_data[2];
+
+    const float qw_old = kal->qw;
+    const float qx_old = kal->qx;
+    const float qy_old = kal->qy;
+    const float qz_old = kal->qz;
+
+    const float half_T = 0.5f * T;
+
+    const float dp = half_T * p;
+    const float dq = half_T * q;
+    const float dr = half_T * r;
+
+    /*
+     * Propagación del cuaternión:
+     * q_dot = 0.5 * q ⊗ [0, wx, wy, wz]
+     */
     kal->qw = qw_old - dp * qx_old - dq * qy_old - dr * qz_old;
     kal->qx = qx_old + dp * qw_old - dq * qz_old + dr * qy_old;
     kal->qy = qy_old + dp * qz_old + dq * qw_old - dr * qx_old;
     kal->qz = qz_old - dp * qy_old + dq * qx_old + dr * qw_old;
 
-    /* Quaternion normalization */
-    float norm =
-        sqrtf(kal->qw * kal->qw + kal->qx * kal->qx + kal->qy * kal->qy + kal->qz * kal->qz);
-    kal->qw /= norm;
-    kal->qx /= norm;
-    kal->qy /= norm;
-    kal->qz /= norm;
+    normalize_quaternion(kal);
 
-    /* Jacobian of f(x, u) */
+    /*
+     * Jacobiano F = df/dx.
+     */
     float F[16] = {1.0f, -dp, -dq, -dr, dp, 1.0f, dr, -dq, dq, -dr, 1.0f, dp, dr, dq, -dp, 1.0f};
 
-    /* Update covariance matrix: P = F * P * F' + Q */
+    /*
+     * Ruido de proceso:
+     * Q = W * Sigma_gyro * W'
+     */
+    const float half_Tqw = half_T * qw_old;
+    const float half_Tqx = half_T * qx_old;
+    const float half_Tqy = half_T * qy_old;
+    const float half_Tqz = half_T * qz_old;
 
-    // Intermidiate calculations
-    float result1[16];
-    SPP_SERVICES_KALMAN_mat4x4Mul(F, kal->P, result1);
-
-    float F_trans[16];
-    SPP_SERVICES_KALMAN_mat4x4Transpose(F, F_trans);
-
-    float result2[16];
-    SPP_SERVICES_KALMAN_mat4x4Mul(result1, F_trans, result2);
-
-    // Fill updated covariance matrix P
-    SPP_SERVICES_KALMAN_mat4x4Add(result2, kal->Q, kal->P);
-
-    /* Update process noise covariance matrix Q */
-
-    //Jacobian W_t
     float W[12];
 
-    //Precalculate common terms
-    float half_Tqw = half_T * qw_old;
-    float half_Tqx = half_T * qx_old;
-    float half_Tqy = half_T * qy_old;
-    float half_Tqz = half_T * qz_old;
-
-    //Row 1
+    /*
+     * W: 4x3
+     */
     W[0] = -half_Tqx;
     W[1] = -half_Tqy;
     W[2] = -half_Tqz;
 
-    //Row 2
     W[3] = half_Tqw;
     W[4] = -half_Tqz;
     W[5] = half_Tqy;
 
-    //Row 3
     W[6] = half_Tqz;
     W[7] = half_Tqw;
     W[8] = -half_Tqx;
 
-    //Row 4
     W[9] = -half_Tqy;
     W[10] = half_Tqx;
     W[11] = half_Tqw;
 
-    //Sigma_w
-    float Sigma_w[3];
-    Sigma_w[0] = GYRO_X_VAR;
-    Sigma_w[1] = GYRO_Y_VAR;
-    Sigma_w[2] = GYRO_Z_VAR;
+    float W_sigma[12];
 
-    float result3[12];
-    SPP_SERVICES_KALMAN_mat4x3Mul3x3diag(W, Sigma_w, result3);
+    for (int row = 0; row < 4; row++)
+    {
+        W_sigma[3 * row + 0] = W[3 * row + 0] * GYRO_X_VAR;
+        W_sigma[3 * row + 1] = W[3 * row + 1] * GYRO_Y_VAR;
+        W_sigma[3 * row + 2] = W[3 * row + 2] * GYRO_Z_VAR;
+    }
 
-    float W_trans[12];
-    SPP_SERVICES_KALMAN_mat4x3Transpose(W, W_trans);
+    float WT[12];
+    mat4x3_transpose_to_3x4(W, WT);
 
+    mat4x3_mul_3x4(W_sigma, WT, kal->Q);
 
-    SPP_SERVICES_KALMAN_mat4x3Mul3x4(result3, W_trans, kal->Q);
+    /*
+     * P = F * P * F' + Q
+     */
+    float FP[16];
+    float FT[16];
+    float FPFT[16];
+
+    mat4_mul(F, kal->P, FP);
+    mat4_transpose(F, FT);
+    mat4_mul(FP, FT, FPFT);
+    mat4_add(FPFT, kal->Q, kal->P);
+
+    symmetrize4(kal->P);
 }
 
-
-void SPP_SERVICES_KALMAN_ekfUpdate(kalman_state *kal, float *acc_ms2)
+void SPP_SERVICES_KALMAN_ekfUpdate(kalman_state *kal, sensor_data *data)
 {
-    /* Extract measurements (this will be vector z)*/
-    float ax = acc_ms2[0];
-    float ay = acc_ms2[1];
-    float az = acc_ms2[2];
+    if ((kal == 0) || (data == 0))
+    {
+        return;
+    }
 
-    /* Extract previous quaternion */
-    float qw = kal->qw;
-    float qx = kal->qx;
-    float qy = kal->qy;
-    float qz = kal->qz;
+    normalize_quaternion(kal);
 
-    /* Compute squared terms */
-    float qw2 = qw * qw;
-    float qx2 = qx * qx;
-    float qy2 = qy * qy;
-    float qz2 = qz * qz;
+    /*
+     * Acelerómetro. Se normaliza a módulo g para que el update use dirección
+     * de gravedad y no el módulo, que suele contaminarse con aceleraciones lineales.
+     */
+    const float ax_raw = data->acc_data[0];
+    const float ay_raw = data->acc_data[1];
+    const float az_raw = data->acc_data[2];
 
-    /* Compute crossed terms */
-    float qwqx2 = 2.0f * qw * qx;
-    float qwqy2 = 2.0f * qw * qy;
-    float qwqz2 = 2.0f * qw * qz;
-    float qxqy2 = 2.0f * qx * qy;
-    float qxqz2 = 2.0f * qx * qz;
-    float qyqz2 = 2.0f * qy * qz;
+    const float acc_norm2 = ax_raw * ax_raw + ay_raw * ay_raw + az_raw * az_raw;
 
-    /* Calculate rotation matrix C */
-    float C[9];
+    if (acc_norm2 < KALMAN_EPS)
+    {
+        return;
+    }
 
-    C[0] = qw2 + qx2 - qy2 - qz2;
-    C[1] = qxqy2 - qwqz2;
-    C[2] = qxqz2 + qwqy2;
+    const float acc_scale = g / sqrtf(acc_norm2);
 
-    C[3] = qxqy2 + qwqz2;
-    C[4] = qw2 - qx2 + qy2 - qz2;
-    C[5] = qyqz2 - qwqx2;
+    const float ax = ax_raw * acc_scale;
+    const float ay = ay_raw * acc_scale;
+    const float az = az_raw * acc_scale;
 
-    C[6] = qxqz2 - qwqy2;
-    C[7] = qyqz2 + qwqx2;
-    C[8] = qw2 - qx2 - qy2 + qz2;
+    const float qw = kal->qw;
+    const float qx = kal->qx;
+    const float qy = kal->qy;
+    const float qz = kal->qz;
 
-    /* Calculate function h(x) = C' * g */
-    float C_trans[9];
-    SPP_SERVICES_KALMAN_mat3x3Transpose(C, C_trans);
-
-    float g_iner[3] = {0};
-    g_iner[2] = g;
-
+    /*
+     * h(x) = C' * [0, 0, g]
+     *
+     * Con q = [qw, qx, qy, qz]:
+     *
+     * h0 = 2g(qx qz - qw qy)
+     * h1 = 2g(qy qz + qw qx)
+     * h2 = g(qw² - qx² - qy² + qz²)
+     */
     float h[3];
-    h[0] = C_trans[0] * g_iner[0] + C_trans[1] * g_iner[1] + C_trans[2] * g;
-    h[1] = C_trans[3] * g_iner[0] + C_trans[4] * g_iner[1] + C_trans[5] * g;
-    h[2] = C_trans[6] * g_iner[0] + C_trans[7] * g_iner[1] + C_trans[8] * g;
 
-    /* Jacobian of h(x) */
+    h[0] = 2.0f * g * (qx * qz - qw * qy);
+    h[1] = 2.0f * g * (qy * qz + qw * qx);
+    h[2] = g * (qw * qw - qx * qx - qy * qy + qz * qz);
 
-    // Compute more common terms
-    float a = g_iner[0] * qw + g_iner[1] * qz - g_iner[2] * qy;
-    float b = g_iner[0] * qx + g_iner[1] * qy + g_iner[2] * qz;
-    float c = -g_iner[0] * qy + g_iner[1] * qx - g_iner[2] * qw;
-    float d = -g_iner[0] * qz + g_iner[1] * qw + g_iner[2] * qx;
-
-    // Multiply by 2
-    float _2a = 2.0f * a;
-    float _2b = 2.0f * b;
-    float _2c = 2.0f * c;
-    float _2d = 2.0f * d;
-
-    // Fill Jacobian H
+    /*
+     * Jacobiano H = dh/dq.
+     * H: 3x4 row-major.
+     */
     float H[12];
 
-    H[0] = _2a;
-    H[1] = _2b;
-    H[2] = _2c;
-    H[3] = _2d;
+    H[0] = -2.0f * g * qy;
+    H[1] = 2.0f * g * qz;
+    H[2] = -2.0f * g * qw;
+    H[3] = 2.0f * g * qx;
 
-    H[4] = _2d;
-    H[5] = -_2c;
-    H[6] = _2b;
-    H[7] = -_2a;
+    H[4] = 2.0f * g * qx;
+    H[5] = 2.0f * g * qw;
+    H[6] = 2.0f * g * qz;
+    H[7] = 2.0f * g * qy;
 
-    H[8] = -_2c;
-    H[9] = -_2d;
-    H[10] = _2a;
-    H[11] = _2b;
+    H[8] = 2.0f * g * qw;
+    H[9] = -2.0f * g * qx;
+    H[10] = -2.0f * g * qy;
+    H[11] = 2.0f * g * qz;
 
-
-    /* Kalman Gain: K = P * H' / (H * P * H' + R) */
-
-    // Calculate: P * H' (4x3)
-    float H_trans[12];
-    SPP_SERVICES_KALMAN_mat3x4Transpose(H, H_trans);
-
-    float term1[12];
-    SPP_SERVICES_KALMAN_mat4x4Mul4x3(kal->P, H_trans, term1);
-
-    // Calculate: H * P * H' + R (3x3)
-
-    // H * P (3x4)
-    float term2_1[12];
-    SPP_SERVICES_KALMAN_mat3x4Mul4x4(H, kal->P, term2_1);
-
-    // H * P * H' (3x3)
-    float term2_2[9];
-    SPP_SERVICES_KALMAN_mat3x4Mul4x3(H, term1, term2_2);
-
-    // H * P * H' + R (3x3)
-    float term2[9];
-    term2[0] = term2_2[0] + kal->R[0];
-    term2[1] = term2_2[1];
-    term2[2] = term2_2[2];
-
-    term2[3] = term2_2[3];
-    term2[4] = term2_2[4] + kal->R[1];
-    term2[5] = term2_2[5];
-
-    term2[6] = term2_2[6];
-    term2[7] = term2_2[7];
-    term2[8] = term2_2[8] + kal->R[2];
-
-    // Finally: K = P * H' / (H * P * H' + R) (4x3)
-    float term2_inv[9];
-    SPP_SERVICES_KALMAN_mat3x3Inverse(term2, term2_inv);
-
-    float K[12];
-    SPP_SERVICES_KALMAN_mat4x3Mul3x3(term1, term2_inv, K);
-
-
-    /* Update state estimate x = x + K * (z - h) */
-
+    /*
+     * Innovación v = z - h.
+     */
     float v[3];
+
     v[0] = ax - h[0];
     v[1] = ay - h[1];
     v[2] = az - h[2];
 
-    float K_v[4];
-    SPP_SERVICES_KALMAN_mat4x3Mul3x1(K, v, K_v);
+    /*
+     * S = H * P * H' + R
+     */
+    float HT[12];
+    float PHt[12];
+    float HPHt[9];
+    float S[9];
 
-    kal->qw += K_v[0];
-    kal->qx += K_v[1];
-    kal->qy += K_v[2];
-    kal->qz += K_v[3];
+    mat3x4_transpose_to_4x3(H, HT);
+    mat4x4_mul_4x3(kal->P, HT, PHt);
+    mat3x4_mul_4x3(H, PHt, HPHt);
 
-    /* Update covariance matrix P = (I - K * H) * P */
+    mat3_zero(S);
 
-    float K_H[16];
-    SPP_SERVICES_KALMAN_mat4x3Mul3x4(K, H, K_H);
+    S[0] = HPHt[0] + kal->R[0];
+    S[1] = HPHt[1];
+    S[2] = HPHt[2];
 
-    float I4[16] = {0};
-    I4[0] = 1.0f;
-    I4[5] = 1.0f;
-    I4[10] = 1.0f;
-    I4[15] = 1.0f;
+    S[3] = HPHt[3];
+    S[4] = HPHt[4] + kal->R[1];
+    S[5] = HPHt[5];
 
-    float part1[16];
-    SPP_SERVICES_KALMAN_mat4x4Sub(I4, K_H, part1);
+    S[6] = HPHt[6];
+    S[7] = HPHt[7];
+    S[8] = HPHt[8] + kal->R[2];
 
-    float tmp_P[16];
-    tmp_P[0] = kal->P[0];
-    tmp_P[1] = kal->P[1];
-    tmp_P[2] = kal->P[2];
-    tmp_P[3] = kal->P[3];
+    float S_inv[9];
 
-    tmp_P[4] = kal->P[4];
-    tmp_P[5] = kal->P[5];
-    tmp_P[6] = kal->P[6];
-    tmp_P[7] = kal->P[7];
-
-    tmp_P[8] = kal->P[8];
-    tmp_P[9] = kal->P[9];
-    tmp_P[10] = kal->P[10];
-    tmp_P[11] = kal->P[11];
-
-    tmp_P[12] = kal->P[12];
-    tmp_P[13] = kal->P[13];
-    tmp_P[14] = kal->P[14];
-    tmp_P[15] = kal->P[15];
-
-    SPP_SERVICES_KALMAN_mat4x4Mul(part1, tmp_P, kal->P);
-}
-//TODO:Verify that the data reading was correct
-void SPP_SERVICES_KALMAN_run(kalman_state *kal, sensor_data *data, const float T)
-{
-    SPP_SERVICES_KALMAN_newDataCheck(data);
-
-    if (data->gyro_new_data == 1)
+    if (!mat3_inverse(S, S_inv))
     {
-        SPP_SERVICES_KALMAN_ekfPredict(kal, data->gyro_data, T);
-
-        data->gyro_old_data[0] = data->gyro_data[0];
-        data->gyro_old_data[1] = data->gyro_data[0];
-        data->gyro_old_data[2] = data->gyro_data[0];
-
-        data->gyro_new_data = 0;
+        return;
     }
 
-    if (data->acc_new_data == 1)
+    /*
+     * K = P * H' * inv(S)
+     */
+    float K[12];
+    mat4x3_mul_3x3(PHt, S_inv, K);
+
+    /*
+     * x = x + K * v
+     */
+    float dx[4];
+    mat4x3_mul_vec3(K, v, dx);
+
+    kal->qw += dx[0];
+    kal->qx += dx[1];
+    kal->qy += dx[2];
+    kal->qz += dx[3];
+
+    normalize_quaternion(kal);
+
+    /*
+     * Actualización Joseph:
+     *
+     * P = (I - K H) P (I - K H)' + K R K'
+     *
+     * Es más estable numéricamente que:
+     * P = (I - K H) P
+     */
+    float KH[16];
+    float I[16];
+    float A[16];
+
+    mat4x3_mul_3x4(K, H, KH);
+    mat4_identity(I);
+    mat4_sub(I, KH, A);
+
+    float AP[16];
+    float AT[16];
+    float APAT[16];
+
+    mat4_mul(A, kal->P, AP);
+    mat4_transpose(A, AT);
+    mat4_mul(AP, AT, APAT);
+
+    /*
+     * KRK' con R diagonal.
+     */
+    float KR[12];
+
+    for (int row = 0; row < 4; row++)
     {
-        SPP_SERVICES_KALMAN_ekfUpdate(kal, data->acc_data);
+        KR[3 * row + 0] = K[3 * row + 0] * kal->R[0];
+        KR[3 * row + 1] = K[3 * row + 1] * kal->R[1];
+        KR[3 * row + 2] = K[3 * row + 2] * kal->R[2];
+    }
+
+    float KT[12];
+    float KRKT[16];
+
+    mat4x3_transpose_to_3x4(K, KT);
+    mat4x3_mul_3x4(KR, KT, KRKT);
+
+    mat4_add(APAT, KRKT, kal->P);
+
+    symmetrize4(kal->P);
+}
+
+void SPP_SERVICES_KALMAN_run(kalman_state *kal, sensor_data *data, float T)
+{
+    if ((kal == 0) || (data == 0))
+    {
+        return;
+    }
+
+    SPP_SERVICES_KALMAN_newDataCheck(data);
+
+    if (data->gyro_new_data != 0U)
+    {
+        SPP_SERVICES_KALMAN_ekfPredict(kal, data, T);
+
+        data->gyro_old_data[0] = data->gyro_data[0];
+        data->gyro_old_data[1] = data->gyro_data[1];
+        data->gyro_old_data[2] = data->gyro_data[2];
+
+        data->gyro_new_data = 0U;
+    }
+
+    if (data->acc_new_data != 0U)
+    {
+        SPP_SERVICES_KALMAN_ekfUpdate(kal, data);
 
         data->acc_old_data[0] = data->acc_data[0];
         data->acc_old_data[1] = data->acc_data[1];
         data->acc_old_data[2] = data->acc_data[2];
 
-        data->acc_new_data = 0;
+        data->acc_new_data = 0U;
     }
-
-
-    //data->mag_old_data[0] = data->mag_data[0];
-    //data->mag_old_data[1] = data->mag_data[1];
-    //data->mag_old_data[2] = data->mag_data[2];
 }
-
 
 void SPP_SERVICES_KALMAN_newDataCheck(sensor_data *data)
 {
-    if (fabsf(data->acc_data[0] - data->acc_old_data[0]) > SENSOR_DATA_TOL ||
-        fabsf(data->acc_data[1] - data->acc_old_data[1]) > SENSOR_DATA_TOL ||
-        fabsf(data->acc_data[2] - data->acc_old_data[2]) > SENSOR_DATA_TOL)
+    if (data == 0)
     {
-        data->acc_new_data = 1;
+        return;
     }
 
-    if (fabsf(data->gyro_data[0] - data->gyro_old_data[0]) > SENSOR_DATA_TOL ||
-        fabsf(data->gyro_data[1] - data->gyro_old_data[1]) > SENSOR_DATA_TOL ||
-        fabsf(data->gyro_data[2] - data->gyro_old_data[2]) > SENSOR_DATA_TOL)
+    data->acc_new_data = 0U;
+    data->gyro_new_data = 0U;
+
+    if ((fabsf(data->acc_data[0] - data->acc_old_data[0]) > SENSOR_DATA_TOL) ||
+        (fabsf(data->acc_data[1] - data->acc_old_data[1]) > SENSOR_DATA_TOL) ||
+        (fabsf(data->acc_data[2] - data->acc_old_data[2]) > SENSOR_DATA_TOL))
     {
-        data->gyro_new_data = 1;
+        data->acc_new_data = 1U;
     }
 
-    // if(fabsf(data->mag_data[0] - data->mag_old_data[0]) > SENSOR_DATA_TOL ||
-    //    fabsf(data->mag_data[1] - data->mag_old_data[1]) > SENSOR_DATA_TOL ||
-    //    fabsf(data->mag_data[2] - data->mag_old_data[2]) > SENSOR_DATA_TOL){
-    //
-    //     data->mag_new_data = 1;
-    // }
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x4Add(const float *restrict A, const float *restrict B,
-                                   float *restrict out)
-{
-    /* Row 1 */
-    out[0] = A[0] + B[0];
-    out[1] = A[1] + B[1];
-    out[2] = A[2] + B[2];
-    out[3] = A[3] + B[3];
-
-    /* Row 2 */
-    out[4] = A[4] + B[4];
-    out[5] = A[5] + B[5];
-    out[6] = A[6] + B[6];
-    out[7] = A[7] + B[7];
-
-    /* Row 3 */
-    out[8] = A[8] + B[8];
-    out[9] = A[9] + B[9];
-    out[10] = A[10] + B[10];
-    out[11] = A[11] + B[11];
-
-    /* Row 4 */
-    out[12] = A[12] + B[12];
-    out[13] = A[13] + B[13];
-    out[14] = A[14] + B[14];
-    out[15] = A[15] + B[15];
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x4Sub(const float *restrict A, const float *restrict B,
-                                   float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] - B[0];
-    out[1] = A[1] - B[1];
-    out[2] = A[2] - B[2];
-    out[3] = A[3] - B[3];
-
-    // Row 2
-    out[4] = A[4] - B[4];
-    out[5] = A[5] - B[5];
-    out[6] = A[6] - B[6];
-    out[7] = A[7] - B[7];
-
-    // Row 3
-    out[8] = A[8] - B[8];
-    out[9] = A[9] - B[9];
-    out[10] = A[10] - B[10];
-    out[11] = A[11] - B[11];
-
-    // Row 4
-    out[12] = A[12] - B[12];
-    out[13] = A[13] - B[13];
-    out[14] = A[14] - B[14];
-    out[15] = A[15] - B[15];
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x4Mul(const float *restrict A, const float *restrict B,
-                                   float *restrict out)
-{
-    /* restrict -> promise to compiler that aliasing will not occur -> makes it faster */
-
-    /* Row 1 */
-    out[0] = A[0] * B[0] + A[1] * B[4] + A[2] * B[8] + A[3] * B[12];
-    out[1] = A[0] * B[1] + A[1] * B[5] + A[2] * B[9] + A[3] * B[13];
-    out[2] = A[0] * B[2] + A[1] * B[6] + A[2] * B[10] + A[3] * B[14];
-    out[3] = A[0] * B[3] + A[1] * B[7] + A[2] * B[11] + A[3] * B[15];
-
-    /* Row 2 */
-    out[4] = A[4] * B[0] + A[5] * B[4] + A[6] * B[8] + A[7] * B[12];
-    out[5] = A[4] * B[1] + A[5] * B[5] + A[6] * B[9] + A[7] * B[13];
-    out[6] = A[4] * B[2] + A[5] * B[6] + A[6] * B[10] + A[7] * B[14];
-    out[7] = A[4] * B[3] + A[5] * B[7] + A[6] * B[11] + A[7] * B[15];
-
-    /* Row 3 */
-    out[8] = A[8] * B[0] + A[9] * B[4] + A[10] * B[8] + A[11] * B[12];
-    out[9] = A[8] * B[1] + A[9] * B[5] + A[10] * B[9] + A[11] * B[13];
-    out[10] = A[8] * B[2] + A[9] * B[6] + A[10] * B[10] + A[11] * B[14];
-    out[11] = A[8] * B[3] + A[9] * B[7] + A[10] * B[11] + A[11] * B[15];
-
-    /* Row 4 */
-    out[12] = A[12] * B[0] + A[13] * B[4] + A[14] * B[8] + A[15] * B[12];
-    out[13] = A[12] * B[1] + A[13] * B[5] + A[14] * B[9] + A[15] * B[13];
-    out[14] = A[12] * B[2] + A[13] * B[6] + A[14] * B[10] + A[15] * B[14];
-    out[15] = A[12] * B[3] + A[13] * B[7] + A[14] * B[11] + A[15] * B[15];
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x4Mul4x3(const float *restrict A, const float *restrict B,
-                                      float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] * B[0] + A[1] * B[3] + A[2] * B[6] + A[3] * B[9];
-    out[1] = A[0] * B[1] + A[1] * B[4] + A[2] * B[7] + A[3] * B[10];
-    out[2] = A[0] * B[2] + A[1] * B[5] + A[2] * B[8] + A[3] * B[11];
-
-    // Row 2
-    out[3] = A[4] * B[0] + A[5] * B[3] + A[6] * B[6] + A[7] * B[9];
-    out[4] = A[4] * B[1] + A[5] * B[4] + A[6] * B[7] + A[7] * B[10];
-    out[5] = A[4] * B[2] + A[5] * B[5] + A[6] * B[8] + A[7] * B[11];
-
-    // Row 3
-    out[6] = A[8] * B[0] + A[9] * B[3] + A[10] * B[6] + A[11] * B[9];
-    out[7] = A[8] * B[1] + A[9] * B[4] + A[10] * B[7] + A[11] * B[10];
-    out[8] = A[8] * B[2] + A[9] * B[5] + A[10] * B[8] + A[11] * B[11];
-
-    // Row 4
-    out[9] = A[12] * B[0] + A[13] * B[3] + A[14] * B[6] + A[15] * B[9];
-    out[10] = A[12] * B[1] + A[13] * B[4] + A[14] * B[7] + A[15] * B[10];
-    out[11] = A[12] * B[2] + A[13] * B[5] + A[14] * B[8] + A[15] * B[11];
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x3Mul3x4(const float *restrict A, const float *restrict B,
-                                      float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] * B[0] + A[1] * B[4] + A[2] * B[8];
-    out[1] = A[0] * B[1] + A[1] * B[5] + A[2] * B[9];
-    out[2] = A[0] * B[2] + A[1] * B[6] + A[2] * B[10];
-    out[3] = A[0] * B[3] + A[1] * B[7] + A[2] * B[11];
-
-    // Row 2
-    out[4] = A[3] * B[0] + A[4] * B[4] + A[5] * B[8];
-    out[5] = A[3] * B[1] + A[4] * B[5] + A[5] * B[9];
-    out[6] = A[3] * B[2] + A[4] * B[6] + A[5] * B[10];
-    out[7] = A[3] * B[3] + A[4] * B[7] + A[5] * B[11];
-
-    // Row 3
-    out[8] = A[6] * B[0] + A[7] * B[4] + A[8] * B[8];
-    out[9] = A[6] * B[1] + A[7] * B[5] + A[8] * B[9];
-    out[10] = A[6] * B[2] + A[7] * B[6] + A[8] * B[10];
-    out[11] = A[6] * B[3] + A[7] * B[7] + A[8] * B[11];
-
-    // Row 4
-    out[12] = A[9] * B[0] + A[10] * B[4] + A[11] * B[8];
-    out[13] = A[9] * B[1] + A[10] * B[5] + A[11] * B[9];
-    out[14] = A[9] * B[2] + A[10] * B[6] + A[11] * B[10];
-    out[15] = A[9] * B[3] + A[10] * B[7] + A[11] * B[11];
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x3Mul3x3(const float *restrict A, const float *restrict B,
-                                      float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] * B[0] + A[1] * B[3] + A[2] * B[6];
-    out[1] = A[0] * B[1] + A[1] * B[4] + A[2] * B[7];
-    out[2] = A[0] * B[2] + A[1] * B[5] + A[2] * B[8];
-
-    // Row 2
-    out[3] = A[3] * B[0] + A[4] * B[3] + A[5] * B[6];
-    out[4] = A[3] * B[1] + A[4] * B[4] + A[5] * B[7];
-    out[5] = A[3] * B[2] + A[4] * B[5] + A[5] * B[8];
-
-    // Row 3
-    out[6] = A[6] * B[0] + A[7] * B[3] + A[8] * B[6];
-    out[7] = A[6] * B[1] + A[7] * B[4] + A[8] * B[7];
-    out[8] = A[6] * B[2] + A[7] * B[5] + A[8] * B[8];
-
-    // Row 4
-    out[9] = A[9] * B[0] + A[10] * B[3] + A[11] * B[6];
-    out[10] = A[9] * B[1] + A[10] * B[4] + A[11] * B[7];
-    out[11] = A[9] * B[2] + A[10] * B[5] + A[11] * B[8];
-}
-
-void SPP_SERVICES_KALMAN_mat4x3Mul3x3diag(const float *restrict A, const float *restrict B,
-                                          float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] * B[0];
-    out[1] = A[1] * B[1];
-    out[2] = A[2] * B[2];
-
-    // Row 2
-    out[3] = A[3] * B[0];
-    out[4] = A[4] * B[1];
-    out[5] = A[5] * B[2];
-
-    // Row 3
-    out[6] = A[6] * B[0];
-    out[7] = A[7] * B[1];
-    out[8] = A[8] * B[2];
-
-    // Row 4
-    out[9] = A[9] * B[0];
-    out[10] = A[10] * B[1];
-    out[11] = A[11] * B[2];
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x3Mul3x1(const float *restrict A, const float *restrict B,
-                                      float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] * B[0] + A[1] * B[1] + A[2] * B[2];
-
-    // Row 2
-    out[1] = A[3] * B[0] + A[4] * B[1] + A[5] * B[2];
-
-    // Row 3
-    out[2] = A[6] * B[0] + A[7] * B[1] + A[8] * B[2];
-
-    // Row 4
-    out[3] = A[9] * B[0] + A[10] * B[1] + A[11] * B[2];
-}
-
-
-void SPP_SERVICES_KALMAN_mat3x4Mul4x4(const float *restrict A, const float *restrict B,
-                                      float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] * B[0] + A[1] * B[4] + A[2] * B[8] + A[3] * B[12];
-    out[1] = A[0] * B[1] + A[1] * B[5] + A[2] * B[9] + A[3] * B[13];
-    out[2] = A[0] * B[2] + A[1] * B[6] + A[2] * B[10] + A[3] * B[14];
-    out[3] = A[0] * B[3] + A[1] * B[7] + A[2] * B[11] + A[3] * B[15];
-
-    // Row 2
-    out[4] = A[4] * B[0] + A[5] * B[4] + A[6] * B[8] + A[7] * B[12];
-    out[5] = A[4] * B[1] + A[5] * B[5] + A[6] * B[9] + A[7] * B[13];
-    out[6] = A[4] * B[2] + A[5] * B[6] + A[6] * B[10] + A[7] * B[14];
-    out[7] = A[4] * B[3] + A[5] * B[7] + A[6] * B[11] + A[7] * B[15];
-
-    // Row 3
-    out[8] = A[8] * B[0] + A[9] * B[4] + A[10] * B[8] + A[11] * B[12];
-    out[9] = A[8] * B[1] + A[9] * B[5] + A[10] * B[9] + A[11] * B[13];
-    out[10] = A[8] * B[2] + A[9] * B[6] + A[10] * B[10] + A[11] * B[14];
-    out[11] = A[8] * B[3] + A[9] * B[7] + A[10] * B[11] + A[11] * B[15];
-}
-
-
-void SPP_SERVICES_KALMAN_mat3x4Mul4x3(const float *restrict A, const float *restrict B,
-                                      float *restrict out)
-{
-    // Row 1
-    out[0] = A[0] * B[0] + A[1] * B[3] + A[2] * B[6] + A[3] * B[9];
-    out[1] = A[0] * B[1] + A[1] * B[4] + A[2] * B[7] + A[3] * B[10];
-    out[2] = A[0] * B[2] + A[1] * B[5] + A[2] * B[8] + A[3] * B[11];
-
-    // Row 2
-    out[3] = A[4] * B[0] + A[5] * B[3] + A[6] * B[6] + A[7] * B[9];
-    out[4] = A[4] * B[1] + A[5] * B[4] + A[6] * B[7] + A[7] * B[10];
-    out[5] = A[4] * B[2] + A[5] * B[5] + A[6] * B[8] + A[7] * B[11];
-
-    // Row 3
-    out[6] = A[8] * B[0] + A[9] * B[3] + A[10] * B[6] + A[11] * B[9];
-    out[7] = A[8] * B[1] + A[9] * B[4] + A[10] * B[7] + A[11] * B[10];
-    out[8] = A[8] * B[2] + A[9] * B[5] + A[10] * B[8] + A[11] * B[11];
-}
-
-
-void SPP_SERVICES_KALMAN_mat4x4Transpose(const float *restrict A, float *restrict out)
-{
-    /* Row 1 */
-    out[0] = A[0];
-    out[1] = A[4];
-    out[2] = A[8];
-    out[3] = A[12];
-
-    /* Row 2 */
-    out[4] = A[1];
-    out[5] = A[5];
-    out[6] = A[9];
-    out[7] = A[13];
-
-    /* Row 3 */
-    out[8] = A[2];
-    out[9] = A[6];
-    out[10] = A[10];
-    out[11] = A[14];
-
-    /* Row 4 */
-    out[12] = A[3];
-    out[13] = A[7];
-    out[14] = A[11];
-    out[15] = A[15];
-}
-
-
-void SPP_SERVICES_KALMAN_mat3x4Transpose(const float *restrict A, float *restrict out)
-{
-    // Row 1
-    out[0] = A[0];
-    out[1] = A[4];
-    out[2] = A[8];
-
-    // Row 2
-    out[3] = A[1];
-    out[4] = A[5];
-    out[5] = A[9];
-
-    // Row 3
-    out[6] = A[2];
-    out[7] = A[6];
-    out[8] = A[10];
-
-    // Row 4
-    out[9] = A[3];
-    out[10] = A[7];
-    out[11] = A[11];
-}
-
-void SPP_SERVICES_KALMAN_mat4x3Transpose(const float *restrict A, float *restrict out)
-{
-    // Row 1
-    out[0] = A[0];
-    out[1] = A[3];
-    out[2] = A[6];
-    out[3] = A[9];
-
-    // Row 2
-    out[4] = A[1];
-    out[5] = A[4];
-    out[6] = A[7];
-    out[7] = A[10];
-    // Row 3
-
-    out[8] = A[2];
-    out[9] = A[5];
-    out[10] = A[8];
-    out[11] = A[11];
-}
-
-void SPP_SERVICES_KALMAN_mat3x3Transpose(const float *restrict A, float *restrict out)
-{
-    // Row 1
-    out[0] = A[0];
-    out[1] = A[3];
-    out[2] = A[6];
-
-    // Row 2
-    out[3] = A[1];
-    out[4] = A[4];
-    out[5] = A[7];
-
-    // Row 3
-    out[6] = A[2];
-    out[7] = A[5];
-    out[8] = A[8];
-}
-
-
-int SPP_SERVICES_KALMAN_mat3x3Inverse(const float *restrict in, float *restrict out)
-{
-    // Devuelve 1 si se invirtió con éxito, 0 si la matriz es singular (determinante cero)
-
-    // 1. Precalculamos los cofactores de la primera fila
-    // (los necesitamos tanto para el determinante como para la salida)
-    float c00 = in[4] * in[8] - in[5] * in[7];
-    float c01 = in[5] * in[6] - in[3] * in[8];
-    float c02 = in[3] * in[7] - in[4] * in[6];
-
-    // 2. Calculamos el determinante
-    float det = in[0] * c00 + in[1] * c01 + in[2] * c02;
-
-    // 3. Protección contra singularidad (evitar división por cero o NaNs)
-    // Usamos un epsilon pequeño típico para floats de 32 bits
-    if (det > -1e-6f && det < 1e-6f)
+    if ((fabsf(data->gyro_data[0] - data->gyro_old_data[0]) > SENSOR_DATA_TOL) ||
+        (fabsf(data->gyro_data[1] - data->gyro_old_data[1]) > SENSOR_DATA_TOL) ||
+        (fabsf(data->gyro_data[2] - data->gyro_old_data[2]) > SENSOR_DATA_TOL))
     {
-        return 0; // Fallo: Matriz singular
+        data->gyro_new_data = 1U;
     }
-
-    // 4. Calculamos la inversa del determinante (una sola división)
-    float inv_det = 1.0f / det;
-
-    // 5. Rellenamos la matriz de salida multiplicando la adjunta por inv_det
-    // Fila 1
-    out[0] = c00 * inv_det;
-    out[1] = (in[2] * in[7] - in[1] * in[8]) * inv_det;
-    out[2] = (in[1] * in[5] - in[2] * in[4]) * inv_det;
-
-    // Fila 2
-    out[3] = c01 * inv_det;
-    out[4] = (in[0] * in[8] - in[2] * in[6]) * inv_det;
-    out[5] = (in[2] * in[3] - in[0] * in[5]) * inv_det;
-
-    // Fila 3
-    out[6] = c02 * inv_det;
-    out[7] = (in[1] * in[6] - in[0] * in[7]) * inv_det;
-    out[8] = (in[0] * in[4] - in[1] * in[3]) * inv_det;
-
-    return 1; // Éxito
 }
