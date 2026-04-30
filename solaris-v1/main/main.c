@@ -1,3 +1,20 @@
+/**
+ * @file main.c
+ * @brief Solaris v1 application entry point — bare-metal superloop.
+ *
+ * Wiring:
+ *   - BMP390  DRDY  → GPIO 17 (rising edge, no pull)
+ *   - ICM20948 INT  → GPIO 10 (rising edge, no pull)
+ *   - SD card CS    → GPIO 8/9
+ *
+ * Data flow:
+ *   ISR sets drdyFlag
+ *     → SPP_SERVICES_pollAll() detects flag via serviceTask
+ *       → serviceTask reads sensor, builds packet, calls SPP_SERVICES_PUBSUB_publish()
+ *         → CRITICAL subscribers: called synchronously inside publish()
+ *         → other subscribers: dispatched one-per-tick via SPP_SERVICES_PUBSUB_tick()
+ */
+
 #include "spp/spp.h"
 #include "spp/services/bmp390/bmp390.h"
 #include "spp/services/icm20948/icm20948.h"
@@ -43,11 +60,16 @@ static const ICM20948_ServiceCfg_t s_icmCfg = {
 };
 
 /* ----------------------------------------------------------------
- * SD card logger (disabled)
+ * SD card logger (disabled — enable by un-commenting the block below
+ * and registering g_sdLoggerModule before SPP_SERVICES_initAll())
  * ---------------------------------------------------------------- */
 
 /*
-static Datalogger_t s_logger;
+static Datalogger_t s_loggerCtx;
+static const Datalogger_Cfg_t s_loggerCfg = {
+    .p_storageCfg = (void *)&s_storageCfg,
+    .p_filePath   = "/sdcard/log.txt",
+};
 
 static const SPP_StorageInitCfg_t s_storageCfg = {
     .p_basePath = "/sdcard",
@@ -57,27 +79,14 @@ static const SPP_StorageInitCfg_t s_storageCfg = {
     .allocationUnitSize = 16384U,
     .formatIfMountFailed = false,
 };
-
-#define K_SD_FLUSH_EVERY (20U)
-
-static void sdLogHandler(const SPP_Packet_t *p_packet, void *p_ctx)
-{
-    Datalogger_t *p_log = (Datalogger_t *)p_ctx;
-    (void)SPP_SERVICES_DATALOGGER_logPacket(p_log, p_packet);
-
-    if ((p_log->logged_packets % K_SD_FLUSH_EVERY) == 0U)
-    {
-        (void)SPP_SERVICES_DATALOGGER_flush(p_log);
-    }
-}
 */
 
 /* ----------------------------------------------------------------
  * SPP_LOG → pub/sub bridge
  *
  * Registers as the log output function.  Every SPP_LOG* call formats
- * a K_SPP_APID_LOG packet and publishes it.  The SD card subscriber
- * receives it and writes the string directly to the log file.
+ * a K_SPP_APID_LOG packet and publishes it.  Subscribers receive it
+ * through the normal pub/sub dispatch path.
  * ---------------------------------------------------------------- */
 
 static spp_uint16_t s_logSeq = 0U;
@@ -123,19 +132,16 @@ void app_main(void)
     (void)SPP_HAL_spiDeviceInit(SPP_HAL_spiGetHandle(0U));
     (void)SPP_HAL_spiDeviceInit(SPP_HAL_spiGetHandle(1U));
 
-    /* 4. SD card logger (disabled). */
-    /*
-    if (SPP_SERVICES_DATALOGGER_init(&s_logger, (void *)&s_storageCfg, "/sdcard/log.txt") !=
-        K_SPP_OK)
-    {
-        printf("[W] app_main: SD card unavailable — continuing without logging\n");
-    }
-    (void)SPP_SERVICES_PUBSUB_subscribe(K_SPP_APID_ALL, sdLogHandler, &s_logger);
-    */
+    /* 4. SD card logger (disabled).
+     *    To enable: un-comment the Datalogger_Cfg_t above, include datalogger.h,
+     *    and add this call before SPP_SERVICES_initAll():
+     *    (void)SPP_SERVICES_register(&g_sdLoggerModule, &s_loggerCtx, &s_loggerCfg);
+     *    Registration auto-subscribes g_sdLoggerModule to K_SPP_APID_ALL at PRIO_LOW. */
 
-    /* 5. Register, init and start BMP390 + ICM20948. */
-    (void)SPP_SERVICES_register(&g_icm20948ServiceDesc, &s_icmCtx, &s_icmCfg);
-    (void)SPP_SERVICES_register(&g_bmp390ServiceDesc, &s_bmpCtx, &s_bmpCfg);
+    /* 5. Register, init and start ICM20948 + BMP390.
+     *    Registration order sets pollAll() dispatch order — ICM first (higher rate). */
+    (void)SPP_SERVICES_register(&g_icm20948Module, &s_icmCtx, &s_icmCfg);
+    (void)SPP_SERVICES_register(&g_bmp390Module, &s_bmpCtx, &s_bmpCfg);
     (void)SPP_SERVICES_initAll();
     (void)SPP_SERVICES_startAll();
 
@@ -143,10 +149,17 @@ void app_main(void)
 
     /* ----------------------------------------------------------------
      * Superloop
+     *
+     * pollAll() calls each module's serviceTask in registration order.
+     * Each serviceTask checks its own DRDY flag and returns immediately
+     * when no data is ready.
+     *
+     * tick() dispatches one deferred (non-CRITICAL) subscriber per call,
+     * draining the pub/sub queue without blocking sensor reads.
      * ---------------------------------------------------------------- */
     for (;;)
     {
-        SPP_SERVICES_callProducers();
-        SPP_SERVICES_callConsumers(); /* one per call — spreads SD writes across iterations */
+        SPP_SERVICES_pollAll();
+        SPP_SERVICES_PUBSUB_tick();
     }
 }
