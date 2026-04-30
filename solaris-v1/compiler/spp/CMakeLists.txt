@@ -71,6 +71,7 @@ set(SPP_SRC_FILES
 option(SPP_SERVICE_BMP390     "Compile BMP390 pressure sensor service"  ON)
 option(SPP_SERVICE_ICM20948   "Compile ICM20948 IMU service"            ON)
 option(SPP_SERVICE_DATALOGGER "Compile datalogger (SD card) service"    ON)
+option(SPP_DEBUG_PRINT        "Print sensor values to stdout via printf" ON)
 
 set(SPP_SERVICE_FILES "")
 
@@ -95,8 +96,19 @@ else()
     message(STATUS "spp: DATALOGGER service   OFF")
 endif()
 
+if(SPP_DEBUG_PRINT)
+    list(APPEND SPP_SERVICE_FILES)
+    message(STATUS "spp: DEBUG_PRINT          ON")
+else()
+    message(STATUS "spp: DEBUG_PRINT          OFF")
+endif()
+
 # Include root is the parent of spp/ so #include "spp/core/packet.h" resolves correctly.
 idf_component_register(
     SRCS         ${SPP_SRC_FILES} ${SPP_SERVICE_FILES}
     INCLUDE_DIRS "${SPP_ROOT}/.."
 )
+
+if(SPP_DEBUG_PRINT)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC SPP_DEBUG_PRINT=1)
+endif()
