@@ -1,7 +1,7 @@
 #include "spp/spp.h"
 #include "spp/services/bmp390/bmp390.h"
 #include "spp/services/icm20948/icm20948.h"
-#include "spp/services/datalogger/datalogger.h"
+/* #include "spp/services/datalogger/datalogger.h" */
 
 extern const SPP_HalPort_t g_esp32HalPort;
 
@@ -32,6 +32,20 @@ static Datalogger_t s_logger = {
     .p_storageCfg = (void *)&s_sdCfg,
     .p_filePath = "/sdcard/log.txt",
 };
+
+static uint32_t s_rxCount = 0U;
+
+static void debugSubscriber(const SPP_Packet_t *p_packet, void *p_ctx)
+{
+    (void)p_ctx;
+    s_rxCount++;
+    if (s_rxCount % 50U == 0U)
+    {
+        printf("[DEBUG] rx=%u apid=0x%04X queue=%u overflow=%u\n", (unsigned)s_rxCount,
+               (unsigned)p_packet->primaryHeader.apid, (unsigned)SPP_SERVICES_PUBSUB_queueDepth(),
+               (unsigned)SPP_SERVICES_PUBSUB_overflowCount(K_SPP_APID_ALL));
+    }
+}
 
 void app_main(void)
 {
